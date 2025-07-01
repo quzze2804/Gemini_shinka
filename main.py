@@ -574,11 +574,11 @@ async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await query.answer()
 
     # Координаты вашего шиномонтажа (пример для Одессы)
-    latitude = 46.467890 # Пример: широта
-    longitude = 30.730300 # Пример: долгота
+    latitude = 45.9842630 # Пример: широта
+    longitude = 29.4391084 # Пример: долгота
     
     # Можно добавить адрес в текстовом сообщении
-    address_text = "Мы находимся по адресу: г. Одесса, ул. Успенская, 1 (это примерный адрес, замените на свой!)\n\n"
+    address_text = "Мы находимся по адресу: г. Арциз, ул. проулок Транспортный\n\n"
     
     keyboard = [[InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
