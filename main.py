@@ -372,6 +372,10 @@ async def notify_admin_reschedule(context: ContextTypes.DEFAULT_TYPE, old_bookin
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления администратору: {e}")
 
+
+
+
+
 # --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ НАПОМИНАНИЯ ---
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет напоминание о предстоящей записи."""
@@ -397,6 +401,8 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"Напоминание отправлено пользователю {chat_id} для записи {date_str} {time_str}")
     except Exception as e:
         logger.error(f"Ошибка при отправке напоминания пользователю {chat_id}: {e}")
+
+# ... (много кода выше) ...
 
 # --- НОВАЯ ФУНКЦИЯ ДЛЯ ТЕСТОВОГО НАПОМИНАНИЯ ---
 async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -445,12 +451,36 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 # --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
 
-# async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-#     """
-#     Отправляет приветственное сообщение и предлагает выбрать язык,
-#     либо сразу переходит к главному меню, если язык выбран.
-#     """
-#     # ... остальной код функции start ...
+# ... (много кода ниже) ...
+
+# ... (много кода выше, до вашей функции test_reminder_command) ...
+
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ТЕСТОВОГО НАПОМИНАНИЯ ---
+async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет тестовое напоминание, только для админа."""
+    user_id = update.effective_user.id
+    
+    # --- СТРОКИ ДЛЯ ВСТАВКИ: НАЧАЛО ---
+    logger.info(f"DEBUG: test_reminder_command received. Sender user_id: {user_id}")
+    logger.info(f"DEBUG: ADMIN_CHAT_ID configured: {ADMIN_CHAT_ID}")
+    # --- СТРОКИ ДЛЯ ВСТАВКИ: КОНЕЦ ---
+
+    # Проверяем, является ли пользователь администратором
+    if ADMIN_CHAT_ID is None or user_id != ADMIN_CHAT_ID:
+        # --- СТРОКА ДЛЯ ВСТАВКИ: НАЧАЛО ---
+        logger.warning(f"DEBUG: Access denied for user {user_id}. ADMIN_CHAT_ID is {ADMIN_CHAT_ID}")
+        # --- СТРОКА ДЛЯ ВСТАВКИ: КОНЕЦ ---
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        return
+
+    chat_id = update.effective_chat.id
+    # ... (остальной код функции test_reminder_command остается без изменений) ...
+    # ... (не забудьте про отступы! logger.warning должен быть с отступом в 8 пробелов, как и await update.message.reply_text) ...
+
+
+
+
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
