@@ -14,7 +14,7 @@ import os
 import pytz 
 
 # --- КОНФИГУРАЦИЯ БОТА ---
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF3jy4_xbRvolfDBbbCHy6Tt8") 
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8") 
 
 try:
     ADMIN_CHAT_ID = int(os.environ.get("TELEGRAM_ADMIN_CHAT_ID", "7285220061"))
@@ -37,6 +37,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# booked_slots теперь хранит уникальные идентификаторы бронирований
+# Формат: { "YYYY-MM-DD": { "HH:MM": { ..., "job_name": "unique_job_id" } } }
 booked_slots = {}
 
 # --- СЛОВАРЬ ПЕРЕВОДОВ ---
@@ -161,6 +163,8 @@ translations = {
         'booked_slot': " (Занято)",
         'back_to_day_select': "⬅️ Назад к выбору дня",
         'back_to_my_bookings': "⬅️ Назад к моим записям",
+        'reminder_message': "🔔 Напоминание о записи! Ваша запись на шиномонтаж завтра, {date_formatted} в {time}. Ждем вас!",
+        'rescheduled_successfully_message': "✅ Ваша запись успешно перенесена на {date_formatted} в {time}."
     },
     'uk': {
         'choose_language': "Будь ласка, оберіть мову:\nPlease choose your language:",
@@ -241,7 +245,7 @@ translations = {
             "✅ Зазвичай повна зміна комплекту шин займає від 30 до 60 хвилин. Ремонт одного колеса – 15-30 хвилин.\n\n"
             "**❓ Чи можу я приїхати без запису?**\n"
             "✅ Так, можете, але ми не можемо гарантувати швидке обслуговування. Для вашої зручності рекомендуємо записуватися через бота.\n\n"
-            "**❓ Що робити, якщо я запізнююся?**\n"
+            "**❓ Що робити, якщо я запізнюся?**\n"
             "✅ Будь ласка, повідомте нам якомога швидше! Якщо ви запізнюєтеся більш ніж на 15 хвилин, ваш запис може бути перенесено."
             "**Графік роботи:**\n"
             "Пн-Пт: 08:00 - 17:00\n"
@@ -281,6 +285,8 @@ translations = {
         'booked_slot': " (Зайнято)",
         'back_to_day_select': "⬅️ Назад до вибору дня",
         'back_to_my_bookings': "⬅️ Назад до моїх записів",
+        'reminder_message': "🔔 Нагадування про запис! Ваш запис на шиномонтаж завтра, {date_formatted} о {time}. Чекаємо на вас!",
+        'rescheduled_successfully_message': "✅ Ваш запис успішно перенесено на {date_formatted} о {time}."
     }
 }
 
@@ -298,11 +304,17 @@ async def notify_admin_new_booking(context: ContextTypes.DEFAULT_TYPE, booking_i
         logger.warning("TELEGRAM_ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
 
-    message = get_text(context, 'admin_new_booking',
-        client_name=booking_info.get('client_name', get_text(context, 'not_specified')),
-        telegram_user_name=booking_info.get('telegram_user_name', get_text(context, 'not_specified')),
+    # Для уведомлений админу используем русский язык по умолчанию или как-то определяем его язык,
+    # либо передаем язык бронирования. Для простоты пока используем 'ru' как язык уведомления.
+    # В более сложной системе, у админа тоже мог бы быть свой язык в context.user_data.
+    admin_context = ContextTypes.DEFAULT_TYPE(context.application, chat_id=ADMIN_CHAT_ID, user_id=ADMIN_CHAT_ID)
+    admin_context.user_data['language'] = 'ru' # Принудительно устанавливаем русский для админского уведомления
+
+    message = get_text(admin_context, 'admin_new_booking',
+        client_name=booking_info.get('client_name', get_text(admin_context, 'not_specified')),
+        telegram_user_name=booking_info.get('telegram_user_name', get_text(admin_context, 'not_specified')),
         user_id=booking_info['user_id'],
-        phone_number=booking_info.get('phone_number', get_text(context, 'not_specified_phone')),
+        phone_number=booking_info.get('phone_number', get_text(admin_context, 'not_specified_phone')),
         date_formatted=booking_info['date'].strftime('%d.%m.%Y'),
         time=booking_info['time']
     )
@@ -318,11 +330,14 @@ async def notify_admin_cancellation(context: ContextTypes.DEFAULT_TYPE, booking_
         logger.warning("TELEGRAM_ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
 
-    message = get_text(context, 'admin_cancellation',
-        client_name=booking_info.get('client_name', get_text(context, 'not_specified')),
-        telegram_user_name=booking_info.get('telegram_user_name', get_text(context, 'not_specified')),
+    admin_context = ContextTypes.DEFAULT_TYPE(context.application, chat_id=ADMIN_CHAT_ID, user_id=ADMIN_CHAT_ID)
+    admin_context.user_data['language'] = 'ru' 
+
+    message = get_text(admin_context, 'admin_cancellation',
+        client_name=booking_info.get('client_name', get_text(admin_context, 'not_specified')),
+        telegram_user_name=booking_info.get('telegram_user_name', get_text(admin_context, 'not_specified')),
         user_id=booking_info['user_id'],
-        phone_number=booking_info.get('phone_number', get_text(context, 'not_specified_phone')),
+        phone_number=booking_info.get('phone_number', get_text(admin_context, 'not_specified_phone')),
         date_formatted=booking_info['date'].strftime('%d.%m.%Y'),
         time=booking_info['time']
     )
@@ -337,12 +352,15 @@ async def notify_admin_reschedule(context: ContextTypes.DEFAULT_TYPE, old_bookin
     if ADMIN_CHAT_ID is None:
         logger.warning("TELEGRAM_ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
+    
+    admin_context = ContextTypes.DEFAULT_TYPE(context.application, chat_id=ADMIN_CHAT_ID, user_id=ADMIN_CHAT_ID)
+    admin_context.user_data['language'] = 'ru' 
 
-    message = get_text(context, 'admin_reschedule',
-        client_name=new_booking.get('client_name', get_text(context, 'not_specified')),
-        telegram_user_name=new_booking.get('telegram_user_name', get_text(context, 'not_specified')),
+    message = get_text(admin_context, 'admin_reschedule',
+        client_name=new_booking.get('client_name', get_text(admin_context, 'not_specified')),
+        telegram_user_name=new_booking.get('telegram_user_name', get_text(admin_context, 'not_specified')),
         user_id=new_booking['user_id'],
-        phone_number=new_booking.get('phone_number', get_text(context, 'not_specified_phone')),
+        phone_number=new_booking.get('phone_number', get_text(admin_context, 'not_specified_phone')),
         old_date_formatted=old_booking['date'].strftime('%d.%m.%Y'),
         old_time=old_booking['time'],
         new_date_formatted=new_booking['date'].strftime('%d.%m.%Y'),
@@ -354,12 +372,37 @@ async def notify_admin_reschedule(context: ContextTypes.DEFAULT_TYPE, old_bookin
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления администратору: {e}")
 
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ НАПОМИНАНИЯ ---
+async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет напоминание о предстоящей записи."""
+    job = context.job
+    # job.data содержит информацию, переданную при планировании:
+    # {'chat_id': ..., 'user_id': ..., 'date_str': ..., 'time_str': ..., 'language': ...}
+    
+    chat_id = job.data['chat_id']
+    user_id = job.data['user_id']
+    date_str = job.data['date_str']
+    time_str = job.data['time_str']
+    user_lang = job.data['language']
+
+    # Временный контекст для получения текста на языке пользователя
+    reminder_context = ContextTypes.DEFAULT_TYPE(context.application, chat_id=chat_id, user_id=user_id)
+    reminder_context.user_data['language'] = user_lang
+
+    reminder_message = get_text(reminder_context, 'reminder_message', 
+                                date_formatted=datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y'), 
+                                time=time_str)
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=reminder_message, parse_mode='Markdown')
+        logger.info(f"Напоминание отправлено пользователю {chat_id} для записи {date_str} {time_str}")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке напоминания пользователю {chat_id}: {e}")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Отправляет приветственное сообщение и предлагает выбрать язык,
     либо сразу переходит к главному меню, если язык выбран.
     """
-    user = update.effective_user
     user_lang = context.user_data.get('language')
 
     if user_lang is None:
@@ -372,7 +415,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         if update.message:
             await update.message.reply_text(translations['ru']['choose_language'], reply_markup=reply_markup)
-        else: # Для случая, когда вызывается из callback_query (например, из main_menu без языка)
+        elif update.callback_query: # Для случая, когда вызывается из callback_query (например, из main_menu без языка)
             await update.callback_query.edit_message_text(translations['ru']['choose_language'], reply_markup=reply_markup)
     else:
         # Если язык уже выбран, показываем основное меню
@@ -401,10 +444,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Определяем, нужно ли отправлять новое сообщение или редактировать существующее
-    if update.message: # Если команда /start была отправлена как новое сообщение
+    if update.message: 
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
-    elif update.callback_query: # Если переход из другого меню (например, main_menu callback)
+    elif update.callback_query: 
         await update.callback_query.edit_message_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def book_appointment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -582,7 +624,9 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_name = context.user_data.get('user_name_for_booking')
     phone_number = context.user_data.get('phone_number')
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id # Получаем chat_id для отправки напоминаний
     telegram_user_name = update.effective_user.full_name 
+    user_lang = context.user_data.get('language', 'ru') # Язык пользователя для напоминаний
 
     if not all([selected_date_str, selected_time_str, user_name, phone_number]):
         await query.edit_message_text(get_text(context, 'error_try_again'))
@@ -595,7 +639,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     now_aware = datetime.datetime.now(TIMEZONE)
 
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1) or booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
-        await query.edit_message_text(get_text(context, 'time_booked')) # Используем 'time_booked' для обоих случаев
+        await query.edit_message_text(get_text(context, 'time_booked')) 
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -608,18 +652,27 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if not booked_slots[old_date_str]: 
                 del booked_slots[old_date_str]
             logger.info(f"Старая запись {old_booking_key} удалена для переноса.")
+            
+            # --- УДАЛЯЕМ СТАРОЕ НАПОМИНАНИЕ ---
+            job_name_to_remove = f"reminder_{old_booking_key}"
+            current_jobs = context.job_queue.get_jobs_by_name(job_name_to_remove)
+            for job in current_jobs:
+                job.schedule_removal()
+                logger.info(f"Удалено старое напоминание для {job_name_to_remove}")
 
     if selected_date_str not in booked_slots:
         booked_slots[selected_date_str] = {}
     
+    # --- СОХРАНЯЕМ ИНФОРМАЦИЮ О НАПОМИНАНИИ В БРОНИРОВАНИИ ---
     new_booking_data = {
         'user_id': user_id,
         'telegram_user_name': telegram_user_name, 
         'client_name': user_name,
-        'phone_number': phone_number
+        'phone_number': phone_number,
+        'language': user_lang # Сохраняем язык пользователя для напоминания
     }
     booked_slots[selected_date_str][selected_time_str] = new_booking_data
-
+    
     confirmation_message = get_text(context, 'booking_confirmed',
         user_name=user_name,
         date_formatted=selected_date_naive.strftime('%d.%m.%Y'),
@@ -627,7 +680,6 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         phone_number=phone_number
     )
     
-    # Добавляем кнопку "Мои записи"
     keyboard_after_confirm = [
         [InlineKeyboardButton(get_text(context, 'btn_my_bookings'), callback_data="my_bookings")],
         [InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")] 
@@ -659,6 +711,21 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else:
         await notify_admin_new_booking(context, admin_booking_info)
 
+    # --- ПЛАНИРУЕМ НАПОМИНАНИЕ ---
+    reminder_time = selected_datetime_aware - datetime.timedelta(days=1) # За 24 часа до
+    # Убедимся, что напоминание не планируется в прошлом
+    if reminder_time > now_aware:
+        job_name = f"reminder_{selected_date_str}_{selected_time_str}"
+        context.job_queue.run_once(
+            send_reminder,
+            reminder_time,
+            data={'chat_id': chat_id, 'user_id': user_id, 'date_str': selected_date_str, 'time_str': selected_time_str, 'language': user_lang},
+            name=job_name
+        )
+        logger.info(f"Напоминание запланировано для {job_name} на {reminder_time}")
+    else:
+        logger.warning(f"Напоминание для {selected_date_str} {selected_time_str} не запланировано, так как время уже прошло.")
+
     context.user_data.clear() 
     return ConversationHandler.END
 
@@ -672,7 +739,7 @@ async def cancel_booking_process(update: Update, context: ContextTypes.DEFAULT_T
 
 async def cancel_booking_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Отменяет текущий процесс записи с помощью команды /cancel."""
-    await update.message.reply_text(get_text(context, 'process_cancelled')) # Используем то же сообщение
+    await update.message.reply_text(get_text(context, 'process_cancelled')) 
     context.user_data.clear() 
     return ConversationHandler.END
 
@@ -763,6 +830,13 @@ async def cancel_specific_booking(update: Update, context: ContextTypes.DEFAULT_
             }
             await notify_admin_cancellation(context, admin_cancellation_info)
 
+            # --- УДАЛЯЕМ НАПОМИНАНИЕ ПРИ ОТМЕНЕ ---
+            job_name_to_remove = f"reminder_{booking_key}"
+            current_jobs = context.job_queue.get_jobs_by_name(job_name_to_remove)
+            for job in current_jobs:
+                job.schedule_removal()
+                logger.info(f"Удалено напоминание для отмененной записи {job_name_to_remove}")
+
         else:
             await query.edit_message_text(get_text(context, 'not_your_booking_cancel'))
     else:
@@ -791,6 +865,7 @@ async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFA
             await query.edit_message_text(
                 get_text(context, 'reschedule_intro', old_date_formatted=datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y'), old_time=time_str)
             )
+            # При переносе, старое напоминание будет удалено в confirm_booking
             await book_appointment(update, context) 
             return ConversationHandler.END 
         else:
@@ -805,9 +880,9 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Возвращает пользователя в главное меню."""
     query = update.callback_query
     await query.answer()
-    context.user_data.pop('reschedule_mode', None) # Очищаем режим переноса, если он был установлен
-    context.user_data.pop('old_booking_key', None) # Очищаем ключ старой брони
-    await show_main_menu(update, context) # Вызываем show_main_menu, чтобы показать меню на текущем языке
+    context.user_data.pop('reschedule_mode', None) 
+    context.user_data.pop('old_booking_key', None) 
+    await show_main_menu(update, context) 
 
 async def info_and_faq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет информацию и ответы на часто задаваемые вопросы."""
@@ -826,8 +901,8 @@ async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await query.answer()
 
     # Координаты вашего шиномонтажа (пример для Одессы)
-    latitude = 46.467890 # Пример: широта
-    longitude = 30.730300 # Пример: долгота
+    latitude = 46.467890 
+    longitude = 30.730300 
     
     address_text = get_text(context, 'our_location_address')
     
@@ -840,7 +915,6 @@ async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
-    # Отправляем геопозицию
     await context.bot.send_location(
         chat_id=update.effective_chat.id, 
         latitude=latitude, 
@@ -853,7 +927,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Повторяет текстовые сообщения пользователя."""
-    # Эту функцию можно оставить или удалить, она просто повторяет текст
     await update.message.reply_text(update.message.text)
 
 
@@ -865,12 +938,8 @@ def main() -> None:
 
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Регистрация обработчиков
-    # Обработчик для команды /start, который теперь может показывать выбор языка
     application.add_handler(CommandHandler("start", start))
-    # Новый обработчик для выбора языка
     application.add_handler(CallbackQueryHandler(set_language, pattern="^set_lang_"))
-    # Все остальные обработчики теперь работают через show_main_menu после выбора языка
     application.add_handler(CallbackQueryHandler(book_appointment, pattern="^book_appointment$"))
     application.add_handler(CallbackQueryHandler(select_date, pattern="^select_date_"))
     application.add_handler(CallbackQueryHandler(my_bookings, pattern="^my_bookings$")) 
