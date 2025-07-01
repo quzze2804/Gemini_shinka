@@ -11,12 +11,19 @@ from telegram.ext import (
 import datetime
 import os 
 
-# --- ВАШИ ДАННЫЕ (ЛУЧШЕ ИСПОЛЬЗОВАТЬ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ НА RAILWAY) ---
-# Если вы уже настроили переменные окружения на Railway, то эти строки будут брать значения оттуда.
-# Если нет, то используйте жестко заданные значения, но помните о безопасности.
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8") 
-ADMIN_USER_ID = int(os.environ.get("ADMIN_USER_ID", "7285220061")) # Важно преобразовать в int
-# --- КОНЕЦ ВАШИХ ДАННЫХ ---
+# --- КОНФИГУРАЦИЯ БОТА ---
+# Настоятельно рекомендуется использовать переменные окружения на Railway для безопасности!
+# Если переменные окружения TELEGRAM_BOT_TOKEN или ADMIN_USER_ID не установлены на Railway,
+# то будут использоваться значения по умолчанию, указанные здесь.
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8") 
+# Преобразуем ADMIN_USER_ID в int. Если переменной нет или она некорректна, то None.
+try:
+    ADMIN_CHAT_ID = int(os.environ.get("ADMIN_USER_ID", "7285220061"))
+except (ValueError, TypeError):
+    ADMIN_CHAT_ID = None # Установим None, если не удалось преобразовать в int
+    logging.warning("ADMIN_USER_ID не установлен или некорректен в переменных окружения. Уведомления админу могут не работать.")
+
+# --- КОНЕЦ КОНФИГУРАЦИИ ---
 
 
 # Настройка логирования
@@ -31,6 +38,10 @@ booked_slots = {}
 
 async def notify_admin_new_booking(context: ContextTypes.DEFAULT_TYPE, booking_info: dict) -> None:
     """Отправляет уведомление администратору о новой брони."""
+    if ADMIN_CHAT_ID is None:
+        logger.warning("ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
+        return
+
     message = (
         f"🔔 **НОВАЯ ЗАПИСЬ!**\n\n"
         f"**Клиент:** {booking_info['user_name']} (ID: {booking_info['user_id']})\n"
@@ -38,8 +49,8 @@ async def notify_admin_new_booking(context: ContextTypes.DEFAULT_TYPE, booking_i
         f"**Время:** {booking_info['time']}"
     )
     try:
-        await context.bot.send_message(chat_id=ADMIN_USER_ID, text=message, parse_mode='Markdown')
-        logger.info(f"Уведомление о новой записи отправлено администратору {ADMIN_USER_ID}")
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
+        logger.info(f"Уведомление о новой записи отправлено администратору {ADMIN_CHAT_ID}")
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления администратору: {e}")
 
@@ -88,17 +99,19 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     current_time_slot = datetime.datetime.combine(selected_date, start_time)
 
     # Получаем текущее время для сравнения
-    now = datetime.datetime.now()
+    now = datetime.datetime.now(datetime.timezone.utc).astimezone() # Получаем текущее время с учетом часового пояса
     
     while current_time_slot.time() <= end_time:
+        slot_datetime = datetime.datetime.combine(selected_date, current_time_slot.time())
+        
+        # Если выбранная дата - сегодня, и слот уже в прошлом
+        # Используем datetime.timedelta(minutes=1) для небольшой "форы"
+        is_past_slot = (selected_date == now.date() and slot_datetime < now - datetime.timedelta(minutes=1))
+        
         slot_str = current_time_slot.strftime("%H:%M")
         
         # Проверяем, занят ли слот
         is_booked = booked_slots.get(selected_date_str, {}).get(slot_str) is not None
-        
-        # Проверяем, если слот в прошлом (для текущего дня)
-        # Сравниваем дату и время. Если дата сегодня и время слота уже прошло
-        is_past_slot = (selected_date == now.date() and current_time_slot < now)
         
         button_text = f"{slot_str}"
         if is_booked:
@@ -141,39 +154,40 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     user_name = update.effective_user.full_name
 
-    # Проверяем, свободен ли слот перед бронированием
-    # Также перепроверяем, не является ли слот прошедшим, чтобы избежать гонки
-    selected_datetime = datetime.datetime.combine(datetime.date.fromisoformat(selected_date_str), datetime.time.fromisoformat(selected_time_str))
-    now = datetime.datetime.now()
+    # Перепроверяем, не является ли слот прошедшим или занятым прямо перед бронированием
+    selected_datetime_obj = datetime.datetime.combine(datetime.date.fromisoformat(selected_date_str), datetime.time.fromisoformat(selected_time_str))
+    now = datetime.datetime.now(datetime.timezone.utc).astimezone() # Время с учетом TZ
 
-    if selected_datetime < now:
+    if selected_datetime_obj < now - datetime.timedelta(minutes=1): # Даем небольшую "фору" в 1 минуту
         await query.edit_message_text("К сожалению, это время уже прошло. Пожалуйста, выберите другое.")
         return
-
-    if booked_slots.get(selected_date_str, {}).get(selected_time_str) is None:
-        if selected_date_str not in booked_slots:
-            booked_slots[selected_date_str] = {}
-        booked_slots[selected_date_str][selected_time_str] = user_id
-
-        confirmation_message = (
-            f"✅ Отлично, {user_name}! Вы успешно записаны на шиномонтаж:\n\n"
-            f"📅 **Дата:** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
-            f"⏰ **Время:** {selected_time_str}\n\n"
-            "Ждем вас!"
-        )
-        await query.edit_message_text(confirmation_message, parse_mode='Markdown')
-
-        # Отправляем уведомление администратору
-        booking_info = {
-            "user_id": user_id,
-            "user_name": user_name,
-            "date": datetime.date.fromisoformat(selected_date_str),
-            "time": selected_time_str
-        }
-        await notify_admin_new_booking(context, booking_info)
-
-    else:
+    
+    if booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
         await query.edit_message_text("К сожалению, это время уже занято. Пожалуйста, выберите другое.")
+        return
+
+
+    # Если слот свободен и не в прошлом, бронируем
+    if selected_date_str not in booked_slots:
+        booked_slots[selected_date_str] = {}
+    booked_slots[selected_date_str][selected_time_str] = user_id
+
+    confirmation_message = (
+        f"✅ Отлично, {user_name}! Вы успешно записаны на шиномонтаж:\n\n"
+        f"📅 **Дата:** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
+        f"⏰ **Время:** {selected_time_str}\n\n"
+        "Ждем вас!"
+    )
+    await query.edit_message_text(confirmation_message, parse_mode='Markdown')
+
+    # Отправляем уведомление администратору
+    booking_info = {
+        "user_id": user_id,
+        "user_name": user_name,
+        "date": datetime.date.fromisoformat(selected_date_str),
+        "time": selected_time_str
+    }
+    await notify_admin_new_booking(context, booking_info)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -187,11 +201,11 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     """Запускает бота."""
-    if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN environment variable not set. Exiting.")
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN environment variable not set. Exiting.")
         return
 
-    application = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # Регистрируем обработчики
     application.add_handler(CommandHandler("start", start))
