@@ -290,7 +290,7 @@ translations = {
             "**Клієнт:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
             "**Номер телефону:** {phone_number}\n"
             "**Скасована дата:** {date_formatted}\n"
-            **Скасований час:** {time}"
+            message = "**Скасований час:** {time}"
         ),
         'admin_reschedule': (
             "🔄 **ПЕРЕНЕСЕННЯ ЗАПИСУ!**\n\n"
