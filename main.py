@@ -34,6 +34,8 @@ RESCHEDULE_SELECT_DATE, RESCHEDULE_SELECT_TIME = range(2, 4)
 
 # --- НОВАЯ КОНСТАНТА ДЛЯ ССЫЛКИ НА КАНАЛ ОТЗЫВОВ ---
 REVIEWS_CHANNEL_LINK = "https://t.me/+Qca52HCOurI0MmRi"
+# --- НОВАЯ КОНСТАНТА ДЛЯ НИКНЕЙМА АДМИНА ДЛЯ ОТЗЫВОВ ---
+ADMIN_USERNAME_FOR_REVIEWS = "shimontazh_arciz" # Ваш никнейм Telegram без @
 
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
 
@@ -76,9 +78,11 @@ translations = {
         'reviews_message': (
             "Спасибо за ваш интерес к нашему шиномонтажу!\n\n"
             "Мы ценим мнение каждого клиента. Ваши отзывы помогают нам становиться лучше и поддерживать высокий уровень сервиса.\n\n"
-            "Чтобы почитать отзывы других клиентов или оставить свой, переходите по кнопке ниже:"
+            "Чтобы почитать отзывы других клиентов или оставить свой, переходите по кнопкам ниже:" # Изменено "кнопке" на "кнопкам"
         ),
-        'btn_go_to_reviews_channel': "Наши отзывы и предложения",
+        'btn_go_to_reviews_channel': "Наши отзывы и предложения 💬", # Добавлен эмодзи
+        'btn_leave_a_review': "Оставить отзыв ⭐", # Новая кнопка
+        'btn_back': "Назад ↩️", # Новая кнопка
         # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Выберите день для записи:",
         'select_time_for_booking': "Выберите время для записи на {date}:",
@@ -207,9 +211,11 @@ translations = {
         'reviews_message': (
             "Дякуємо за ваш інтерес до нашого шиномонтажу!\n\n"
             "Ми цінуємо думку кожного клієнта. Ваші відгуки допомагають нам ставати кращими та підтримувати високий рівень сервісу.\n\n"
-            "Щоб почитати відгуки інших клієнтів або залишити свій, переходьте за кнопкою нижче:"
+            "Щоб почитати відгуки інших клієнтів або залишити свій, переходьте за кнопками нижче:" # Изменено "кнопкою" на "кнопкам"
         ),
-        'btn_go_to_reviews_channel': "Наші відгуки та пропозиції",
+        'btn_go_to_reviews_channel': "Наші відгуки та пропозиції 💬", # Добавлен эмодзи
+        'btn_leave_a_review': "Залишити відгук ⭐", # Новая кнопка
+        'btn_back': "Назад ↩️", # Новая кнопка
         # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Оберіть день для запису:",
         'select_time_for_booking': "Оберіть час для запису на {date}:",
@@ -487,7 +493,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_lang is None:
         keyboard = [
             [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
-            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")],
+            [InlineKeyboardButton(translations['uk']['uk']['lang_button_uk'], callback_data="set_lang_uk")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -529,12 +535,16 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # --- НОВАЯ ФУНКЦИЯ ДЛЯ ОБРАБОТКИ КНОПКИ "ОТЗЫВЫ" ---
 async def show_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отправляет сообщение с ссылкой на канал отзывов."""
+    """Отправляет сообщение с ссылками на канал отзывов и личное сообщение админу."""
     query = update.callback_query
     await query.answer()
 
     text = get_text(context, 'reviews_message')
-    keyboard = [[InlineKeyboardButton(get_text(context, 'btn_go_to_reviews_channel'), url=REVIEWS_CHANNEL_LINK)]]
+    keyboard = [
+        [InlineKeyboardButton(get_text(context, 'btn_go_to_reviews_channel'), url=REVIEWS_CHANNEL_LINK)],
+        [InlineKeyboardButton(get_text(context, 'btn_leave_a_review'), url=f"tg://resolve?domain={ADMIN_USERNAME_FOR_REVIEWS}")],
+        [InlineKeyboardButton(get_text(context, 'btn_back'), callback_data="main_menu")] # Кнопка "Назад"
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='Markdown')
 
@@ -601,9 +611,9 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         current_slot_datetime += interval
 
     if context.user_data.get('reschedule_mode'):
-        keyboard.append([InlineKeyboardButton(get_text(context, 'back_to_my_bookings'), callback_data="my_bookings")])
+        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_back_to_my_bookings'), callback_data="my_bookings")])
     else:
-        keyboard.append([InlineKeyboardButton(get_text(context, 'back_to_day_select'), callback_data="book_appointment")])
+        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_back_to_day_select'), callback_data="book_appointment")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
@@ -1065,3 +1075,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
