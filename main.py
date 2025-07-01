@@ -74,15 +74,15 @@ translations = {
         'reviews_message': (
             "Спасибо за ваш интерес к нашему шиномонтажу!\n\n"
             "Мы ценим мнение каждого клиента. Ваши отзывы помогают нам становиться лучше и поддерживать высокий уровень сервиса.\n\n"
-            "Чтобы почитать отзывы других клиентов или оставить свой, переходите по кнопкам ниже:" # Изменено "кнопке" на "кнопкам"
+            "Чтобы почитать отзывы других клиентов или оставить свой, переходите по кнопкам ниже:"
         ),
-        'btn_go_to_reviews_channel': "Наши отзывы и предложения 💬", # Добавлен эмодзи
-        'btn_leave_a_review': "Оставить отзыв ⭐", # Новая кнопка
-        'btn_back': "Назад ↩️", # Новая кнопка
+        'btn_go_to_reviews_channel': "Наши отзывы и предложения 💬",
+        'btn_leave_a_review': "Оставить отзыв ⭐",
+        'btn_back': "Назад ↩️",
         # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Выберите день для записи:",
         'select_time_for_booking': "Выберите время для записи на {date}:",
-        'time_unavailable': "Это время недоступно. Пожалуйста, выберите другое.", # Уточнено сообщение
+        'time_unavailable': "Это время недоступно. Пожалуйста, выберите другое.",
         'time_passed': "К сожалению, это время уже прошло. Пожалуйста, выберите другое.",
         'time_booked': "К сожалению, это время уже занято. Пожалуйста, выберите другое.",
         'enter_name': "Отлично! Теперь введите ваше имя (например, 'Иван'):",
@@ -207,15 +207,15 @@ translations = {
         'reviews_message': (
             "Дякуємо за ваш інтерес до нашого шиномонтажу!\n\n"
             "Ми цінуємо думку кожного клієнта. Ваші відгуки допомагають нам ставати кращими та підтримувати високий рівень сервісу.\n\n"
-            "Щоб почитати відгуки інших клієнтів або залишити свій, переходьте за кнопками нижче:" # Изменено "кнопкою" на "кнопкам"
+            "Щоб почитати відгуки інших клієнтів або залишити свій, переходьте за кнопками нижче:"
         ),
-        'btn_go_to_reviews_channel': "Наші відгуки та пропозиції 💬", # Добавлен эмодзи
-        'btn_leave_a_review': "Залишити відгук ⭐", # Новая кнопка
-        'btn_back': "Назад ↩️", # Новая кнопка
+        'btn_go_to_reviews_channel': "Наші відгуки та пропозиції 💬",
+        'btn_leave_a_review': "Залишити відгук ⭐",
+        'btn_back': "Назад ↩️",
         # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Оберіть день для запису:",
         'select_time_for_booking': "Оберіть час для запису на {date}:",
-        'time_unavailable': "Цей час недоступний. Будь ласка, оберіть інший.", # Уточнено сообщение
+        'time_unavailable': "Цей час недоступний. Будь ласка, оберіть інший.",
         'time_passed': "На жаль, цей час вже минув. Будь ласка, оберіть інший.",
         'time_booked': "На жаль, цей час вже зайнятий. Будь ласка, оберіть інший.",
         'enter_name': "Чудово! Тепер введіть ваше ім'я (наприклад, 'Іван'):",
@@ -487,7 +487,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_lang is None:
         keyboard = [
             [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
-            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")], # Corrected dictionary access
+            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -520,7 +520,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     welcome_message = get_text(context, 'welcome_message', user_full_name=user.full_name)
     
     keyboard = [
-        [InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment_flow_start")], # Изменено callback_data
+        [InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment_flow_start")],
         [InlineKeyboardButton(get_text(context, 'btn_my_bookings'), callback_data="my_bookings")],
         [InlineKeyboardButton(get_text(context, 'btn_info_and_faq'), callback_data="info_and_faq")], 
         [InlineKeyboardButton(get_text(context, 'btn_our_location'), callback_data="our_location")],
@@ -652,27 +652,7 @@ async def select_time_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data['selected_date'] = selected_date_str
     context.user_data['selected_time'] = selected_time_str
 
-    selected_date_naive = datetime.date.fromisoformat(selected_date_str)
-    selected_time_naive = datetime.time.fromisoformat(selected_time_str)
-    selected_datetime_aware = TIMEZONE.localize(datetime.datetime.combine(selected_date_naive, selected_time_naive))
-
-    now_aware = datetime.datetime.now(TIMEZONE)
-
-    # Re-check availability (defensive programming)
-    if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1): 
-        await query.answer(get_text(context, 'time_passed'), show_alert=True)
-        # Re-send the time selection keyboard for the current day
-        # We need to explicitly call select_date_flow to refresh the message and buttons
-        await select_date_flow(update, context) 
-        return BOOKING_SELECT_TIME 
-    
-    if booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
-        await query.answer(get_text(context, 'time_booked'), show_alert=True)
-        # Re-send the time selection keyboard for the current day
-        await select_date_flow(update, context) 
-        return BOOKING_SELECT_TIME
-
-    # If time is available, proceed to ask for name/confirmation
+    # Если время доступно, переходим к запросу имени/подтверждению
     if context.user_data.get('reschedule_mode') and \
        context.user_data.get('user_name_for_booking') and \
        context.user_data.get('phone_number'):
@@ -762,7 +742,7 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     selected_datetime_aware = TIMEZONE.localize(datetime.datetime.combine(selected_date_naive, selected_time_naive))
     now_aware = datetime.datetime.now(TIMEZONE)
 
-    # Повторная проверка на случай, если слот был занят в последний момент
+    # Повторная проверка на случай, если слот был занят в последний момент (хотя handle_ignore_time_flow должен был это перехватить)
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1) or booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
         await query.edit_message_text(get_text(context, 'time_booked')) 
         context.user_data.clear()
@@ -891,7 +871,7 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     })
     
     if not user_bookings:
-        keyboard = [[InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment_flow_start")]] # Изменено callback_data
+        keyboard = [[InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment_flow_start")]]
         keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(get_text(context, 'no_active_bookings'), reply_markup=reply_markup)
@@ -1144,3 +1124,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
