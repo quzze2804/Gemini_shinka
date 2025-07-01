@@ -32,6 +32,9 @@ TIMEZONE = pytz.timezone('Europe/Kiev')
 ASK_NAME, ASK_PHONE = range(2)
 RESCHEDULE_SELECT_DATE, RESCHEDULE_SELECT_TIME = range(2, 4) 
 
+# --- НОВАЯ КОНСТАНТА ДЛЯ ССЫЛКИ НА КАНАЛ ОТЗЫВОВ ---
+REVIEWS_CHANNEL_LINK = "https://t.me/+Qca52HCOurI0MmRi"
+
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
 
 
@@ -68,6 +71,15 @@ translations = {
         'btn_info_and_faq': "ℹ️ Информация и FAQ",
         'btn_our_location': "📍 Наше местоположение",
         'btn_main_menu': "⬅️ Главное меню",
+        # --- НОВЫЕ ПЕРЕВОДЫ ДЛЯ ОТЗЫВОВ ---
+        'btn_reviews': "⭐ Отзывы",
+        'reviews_message': (
+            "Спасибо за ваш интерес к нашему шиномонтажу!\n\n"
+            "Мы ценим мнение каждого клиента. Ваши отзывы помогают нам становиться лучше и поддерживать высокий уровень сервиса.\n\n"
+            "Чтобы почитать отзывы других клиентов или оставить свой, переходите по кнопке ниже:"
+        ),
+        'btn_go_to_reviews_channel': "Наши отзывы и предложения",
+        # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Выберите день для записи:",
         'select_time_for_booking': "Выберите время для записи на {date}:",
         'time_unavailable': "Это время недоступно.",
@@ -190,6 +202,15 @@ translations = {
         'btn_info_and_faq': "ℹ️ Інформація та FAQ",
         'btn_our_location': "📍 Наше місцезнаходження",
         'btn_main_menu': "⬅️ Головне меню",
+        # --- НОВЫЕ ПЕРЕВОДЫ ДЛЯ ОТЗЫВОВ ---
+        'btn_reviews': "⭐ Відгуки",
+        'reviews_message': (
+            "Дякуємо за ваш інтерес до нашого шиномонтажу!\n\n"
+            "Ми цінуємо думку кожного клієнта. Ваші відгуки допомагають нам ставати кращими та підтримувати високий рівень сервісу.\n\n"
+            "Щоб почитати відгуки інших клієнтів або залишити свій, переходьте за кнопкою нижче:"
+        ),
+        'btn_go_to_reviews_channel': "Наші відгуки та пропозиції",
+        # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Оберіть день для запису:",
         'select_time_for_booking': "Оберіть час для запису на {date}:",
         'time_unavailable': "Цей час недоступний.",
@@ -269,7 +290,7 @@ translations = {
             "**Клієнт:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
             "**Номер телефону:** {phone_number}\n"
             "**Скасована дата:** {date_formatted}\n"
-            "**Скасований час:** {time}"
+            **Скасований час:** {time}"
         ),
         'admin_reschedule': (
             "🔄 **ПЕРЕНЕСЕННЯ ЗАПИСУ!**\n\n"
@@ -496,7 +517,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment")],
         [InlineKeyboardButton(get_text(context, 'btn_my_bookings'), callback_data="my_bookings")],
         [InlineKeyboardButton(get_text(context, 'btn_info_and_faq'), callback_data="info_and_faq")], 
-        [InlineKeyboardButton(get_text(context, 'btn_our_location'), callback_data="our_location")] 
+        [InlineKeyboardButton(get_text(context, 'btn_our_location'), callback_data="our_location")],
+        [InlineKeyboardButton(get_text(context, 'btn_reviews'), callback_data="show_reviews")] # Добавлена кнопка "Отзывы"
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -504,6 +526,20 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
     elif update.callback_query: 
         await update.callback_query.edit_message_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ОБРАБОТКИ КНОПКИ "ОТЗЫВЫ" ---
+async def show_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет сообщение с ссылкой на канал отзывов."""
+    query = update.callback_query
+    await query.answer()
+
+    text = get_text(context, 'reviews_message')
+    keyboard = [[InlineKeyboardButton(get_text(context, 'btn_go_to_reviews_channel'), url=REVIEWS_CHANNEL_LINK)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
 
 async def book_appointment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает дни для записи."""
@@ -997,6 +1033,7 @@ def main() -> None:
     
     application.add_handler(CallbackQueryHandler(info_and_faq, pattern="^info_and_faq$"))
     application.add_handler(CallbackQueryHandler(our_location, pattern="^our_location$"))
+    application.add_handler(CallbackQueryHandler(show_reviews, pattern="^show_reviews$")) # Добавлен обработчик для кнопки "Отзывы"
     
     reschedule_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(reschedule_specific_booking, pattern="^reschedule_specific_booking_")],
