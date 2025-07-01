@@ -26,8 +26,6 @@ TIMEZONE = pytz.timezone('Europe/Kiev')
 
 # Константы для состояний ConversationHandler
 ASK_NAME, ASK_PHONE = range(2)
-# Добавляем новые состояния для переноса. Нужны только если перенос идет через отдельный ConversationHandler.
-# Пока что оставим их, но перенос будет использовать основной CONV_BOOKING_APPOINTMENT.
 RESCHEDULE_SELECT_DATE, RESCHEDULE_SELECT_TIME = range(2, 4) 
 
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
@@ -115,13 +113,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Готовы записаться на удобное для вас время или посмотреть свои записи?"
     )
     keyboard = [
-        [InlineKeyboardButton("Записаться на шиномонтаж", callback_data="book_appointment")],
-        [InlineKeyboardButton("Мои записи", callback_data="my_bookings")] 
+        [InlineKeyboardButton("🗓️ Записаться на шиномонтаж", callback_data="book_appointment")],
+        [InlineKeyboardButton("📋 Мои записи", callback_data="my_bookings")],
+        [InlineKeyboardButton("ℹ️ Информация и FAQ", callback_data="info_and_faq")], # Новая кнопка
+        [InlineKeyboardButton("📍 Наше местоположение", callback_data="our_location")] # Новая кнопка
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if update.message:
         await update.message.reply_text(welcome_message, reply_markup=reply_markup)
-    else: # Если вызывается из callback_query (например, из main_menu)
+    else: 
         await update.callback_query.edit_message_text(welcome_message, reply_markup=reply_markup)
 
 
@@ -175,13 +175,7 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         elif is_past_slot:
             button_text += " (Прошло)" 
 
-        callback_data_prefix = "select_time"
-        # Если это процесс переноса, меняем префикс callback_data
-        # и сохраняем информацию, чтобы confirm_booking знал, что это перенос
-        if context.user_data.get('reschedule_mode'):
-            callback_data_prefix = "select_time" # Остается select_time, но confirm_booking проверяет old_booking_key
-        
-        callback_data = f"{callback_data_prefix}_{selected_date_str}_{slot_str}"
+        callback_data = f"select_time_{selected_date_str}_{slot_str}"
         
         is_disabled = is_booked or is_past_slot
 
@@ -190,7 +184,6 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         current_slot_datetime += interval
 
-    # Добавляем кнопку "Назад" к выбору дня или к моим записям
     if context.user_data.get('reschedule_mode'):
         keyboard.append([InlineKeyboardButton("⬅️ Назад к моим записям", callback_data="my_bookings")])
     else:
@@ -215,7 +208,6 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     selected_date_str = parts[2]
     selected_time_str = parts[3]
     
-    # Сохраняем выбранные дату и время во временных данных пользователя (user_data)
     context.user_data['selected_date'] = selected_date_str
     context.user_data['selected_time'] = selected_time_str
 
@@ -233,21 +225,9 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await query.edit_message_text("К сожалению, это время уже занято. Пожалуйста, выберите другое.")
         return ConversationHandler.END
 
-    # Если это перенос, и имя/телефон уже есть, пропустим их запрос
     if context.user_data.get('reschedule_mode') and \
        context.user_data.get('user_name_for_booking') and \
        context.user_data.get('phone_number'):
-        
-        # Если данные для переноса уже есть, сразу переходим к подтверждению
-        # Но для этого нужно изменить ConversationHandler entry_points
-        # или использовать confirm_booking напрямую, что не вписывается в ConvHandler.
-        # Лучше тогда не ConversationHandler, а просто набор callback_query
-        # Если мы все еще в ConvHandler, то нужно перейти в состояние, которое сразу подтверждает
-        # или завершить ConvHandler и вызвать confirm_booking через CallbackQueryHandler.
-        
-        # Очистим old_booking_key, чтобы confirm_booking не пытался удалить старую запись до того,
-        # как пользователь подтвердит новую.
-        # old_booking_key будет передан в context.user_data['old_booking_key'] из reschedule_specific_booking
         
         confirmation_text = (
             f"Пожалуйста, проверьте данные:\n\n"
@@ -263,9 +243,8 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(confirmation_text, reply_markup=reply_markup, parse_mode='Markdown')
-        return ConversationHandler.END # Завершаем ConversationHandler, ждем кнопки
+        return ConversationHandler.END 
     else:
-        # Если не перенос или нет данных, запрашиваем имя
         await query.edit_message_text("Отлично! Теперь введите ваше имя (например, 'Иван'):")
         return ASK_NAME 
 
@@ -372,7 +351,8 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     # Добавляем кнопку "Мои записи"
     keyboard_after_confirm = [
-        [InlineKeyboardButton("Мои записи", callback_data="my_bookings")]
+        [InlineKeyboardButton("📋 Мои записи", callback_data="my_bookings")],
+        [InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")] # Кнопка назад в главное меню
     ]
     reply_markup_after_confirm = InlineKeyboardMarkup(keyboard_after_confirm)
 
@@ -380,7 +360,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     admin_booking_info = {
         "user_id": user_id,
-        "user_name": user_name, # Для старой логики notify_admin_new_booking
+        "user_name": user_name,
         "date": selected_date_naive,
         "time": selected_time_str,
         "phone_number": phone_number,
@@ -444,7 +424,7 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     })
     
     if not user_bookings:
-        keyboard = [[InlineKeyboardButton("Записаться на шиномонтаж", callback_data="book_appointment")]]
+        keyboard = [[InlineKeyboardButton("🗓️ Записаться на шиномонтаж", callback_data="book_appointment")]]
         keyboard.append([InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("У вас пока нет активных записей. Хотите записаться?", reply_markup=reply_markup)
@@ -512,7 +492,7 @@ async def cancel_specific_booking(update: Update, context: ContextTypes.DEFAULT_
     
     await my_bookings(update, context) 
 
-async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Возвращаем int для ConvHandler
+async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: 
     """Начинает процесс переноса конкретной записи."""
     query = update.callback_query
     await query.answer()
@@ -525,7 +505,6 @@ async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFA
         booking_info = booked_slots[date_str][time_str]
         
         if booking_info.get('user_id') == user_id:
-            # Сохраняем информацию о старой записи и включаем режим переноса
             context.user_data['old_booking_key'] = booking_key
             context.user_data['reschedule_mode'] = True
             context.user_data['user_name_for_booking'] = booking_info.get('client_name')
@@ -535,28 +514,94 @@ async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFA
                 f"Вы переносите запись на {datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y')} в {time_str}.\n"
                 "Теперь выберите новую дату и время:"
             )
-            # Перенаправляем на выбор даты, как при обычной записи
-            # Возвращаем ASK_DATE (или другое начальное состояние, если бы ConvHandler был более сложным)
-            # В данном случае, так как select_date является обработчиком CallbackQueryHandler,
-            # мы просто вызываем ее, и ConvHandler не будет в активном состоянии до select_time
-            await book_appointment(update, context)
-            # Мы не возвращаем состояние ConversationHandler.END здесь, потому что хотим, чтобы
-            # следующий выбор времени попал в select_time, который начнет ConvHandler.
-            return ConversationHandler.END # Завершаем текущий CallbackQuery, но не ConvHandler
-
-
+            # Важно: здесь мы вызываем book_appointment, которая изменит сообщение, 
+            # и возвращаем ConversationHandler.END для текущего CallbackQueryHandler.
+            # Следующий шаг (выбор времени) будет обрабатываться основным booking_conv_handler.
+            await book_appointment(update, context) 
+            return ConversationHandler.END 
+        else:
+            await query.edit_message_text("Вы не можете перенести эту запись, так как она сделана не вами.")
     else:
         await query.edit_message_text("Эта запись не найдена или уже отменена.")
-        await my_bookings(update, context)
     
-    return ConversationHandler.END # Возвращаем END, так как этот колбэк завершает свою работу
+    await my_bookings(update, context)
+    return ConversationHandler.END 
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Возвращает пользователя в главное меню."""
     query = update.callback_query
     await query.answer()
-    context.user_data.clear() # Очищаем все временные данные
+    context.user_data.clear() # Очищаем все временные данные, включая режим переноса
     await start(update, context) 
+
+async def info_and_faq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет информацию и ответы на часто задаваемые вопросы."""
+    query = update.callback_query
+    await query.answer()
+
+    faq_text = (
+        "**О нашем шиномонтаже:**\n"
+        "Мы предоставляем полный спектр услуг по шиномонтажу для легковых автомобилей. "
+        "Быстро, качественно, с гарантией!\n\n"
+        "**Часто задаваемые вопросы (FAQ):**\n\n"
+        "**❓ Какие услуги вы предлагаете?**\n"
+        "✅ Мы выполняем монтаж/демонтаж шин, балансировку колес, ремонт проколов, сезонную смену резины, и проверку давления.\n\n"
+        "**❓ Какова стоимость услуг?**\n"
+        "✅ Стоимость зависит от типа вашего автомобиля и размера колес. Примерные цены:\n"
+        "  - Смена резины R13-R15: от 400 грн\n"
+        "  - Смена резины R16-R18: от 600 грн\n"
+        "  - Балансировка: от 100 грн/колесо\n"
+        "  - Ремонт прокола: от 150 грн\n"
+        "Для точной оценки свяжитесь с нами или приезжайте на консультацию!\n\n"
+        "**❓ Сколько времени занимает шиномонтаж?**\n"
+        "✅ Обычно полная смена комплекта шин занимает от 30 до 60 минут. Ремонт одного колеса - 15-30 минут.\n\n"
+        "**❓ Могу ли я приехать без записи?**\n"
+        "✅ Да, можете, но мы не можем гарантировать быстрое обслуживание. Для вашего удобства рекомендуем записываться через бота.\n\n"
+        "**❓ Что делать, если я опаздываю?**\n"
+        "✅ Пожалуйста, сообщите нам как можно скорее! Если вы опаздываете более чем на 15 минут, ваша запись может быть перенесена.\n\n"
+        "**График работы:**\n"
+        "Пн-Пт: 08:00 - 17:00\n"
+        "Сб-Вс: Выходной"
+    )
+
+    keyboard = [[InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(faq_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет геопозицию шиномонтажа."""
+    query = update.callback_query
+    await query.answer()
+
+    # Координаты вашего шиномонтажа (пример для Одессы)
+    latitude = 46.467890 # Пример: широта
+    longitude = 30.730300 # Пример: долгота
+    
+    # Можно добавить адрес в текстовом сообщении
+    address_text = "Мы находимся по адресу: г. Одесса, ул. Успенская, 1 (это примерный адрес, замените на свой!)\n\n"
+    
+    keyboard = [[InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id, 
+        text=address_text,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+    # Отправляем геопозицию
+    await context.bot.send_location(
+        chat_id=update.effective_chat.id, 
+        latitude=latitude, 
+        longitude=longitude
+    )
+
+    # Убедитесь, что сообщение, которое вызывало этот коллбэк, тоже обновляется,
+    # чтобы не оставались старые кнопки.
+    # Так как мы отправляем новое сообщение с картой, можно просто отредактировать старое на "Пожалуйста, подождите..."
+    # или просто на пустой текст. Или не редактировать вообще, а просто оставить.
+    # В данном случае, лучше просто отправить новое сообщение.
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет сообщение с помощью."""
@@ -583,29 +628,23 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$")) 
     application.add_handler(CallbackQueryHandler(cancel_specific_booking, pattern="^cancel_specific_booking_")) 
     
-    # Регистрация ConversationHandler для переноса
-    # Он начинает процесс выбора новой даты/времени.
-    # Входом будет нажатие на кнопку "Перенести"
+    # Новые обработчики для FAQ и Локации
+    application.add_handler(CallbackQueryHandler(info_and_faq, pattern="^info_and_faq$"))
+    application.add_handler(CallbackQueryHandler(our_location, pattern="^our_location$"))
+    
+    # ConversationHandler для переноса
     reschedule_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(reschedule_specific_booking, pattern="^reschedule_specific_booking_")],
-        states={
-            # После reschedule_specific_booking пользователь попадает в book_appointment,
-            # затем select_date, которые уже являются CallbackQueryHandler.
-            # Если пользователь выбирает время, он входит в select_time,
-            # который в свою очередь уже является entry_point для основного conv_booking_appointment.
-            # Здесь не нужны дополнительные состояния, так как мы "перенаправляем" поток в основной процесс записи.
-        },
+        states={}, # Состояния будут обрабатываться основным booking_conv_handler
         fallbacks=[CommandHandler("cancel", cancel_booking_command), CallbackQueryHandler(cancel_booking_process, pattern="^cancel_booking_process$")],
         map_to_parent={
-            ConversationHandler.END: ConversationHandler.END # Завершает ConvHandler и родительский ConvHandler
+            ConversationHandler.END: ConversationHandler.END 
         }
     )
     application.add_handler(reschedule_conv_handler)
 
 
     # ConversationHandler для процесса новой записи
-    # Он также будет использоваться для завершающей части переноса,
-    # так как select_time теперь проверяет reschedule_mode
     booking_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(select_time, pattern="^select_time_")], 
         states={
@@ -616,13 +655,11 @@ def main() -> None:
     )
     application.add_handler(booking_conv_handler)
     
-    # Обработчики для кнопок подтверждения/отмены, которые срабатывают после завершения ConversationHandler
     application.add_handler(CallbackQueryHandler(confirm_booking, pattern="^confirm_booking$"))
     
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo)) 
 
-    # Запускаем бота
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
