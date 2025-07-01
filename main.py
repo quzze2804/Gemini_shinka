@@ -7,6 +7,7 @@ from telegram.ext import (
     filters,
     CallbackQueryHandler,
     ContextTypes,
+    ConversationHandler, # Добавляем ConversationHandler
 )
 import datetime
 import os 
@@ -26,7 +27,10 @@ except (ValueError, TypeError):
 
 # Определяем часовой пояс для работы бота (например, для Украины - 'Europe/Kiev')
 # Важно установить правильный часовой пояс, чтобы слоты корректно отображались
-TIMEZONE = pytz.timezone('Europe/Kiev') # Используем часовой пояс Киева для Одессы
+TIMEZONE = pytz.timezone('Europe/Kiev') 
+
+# Константы для состояний ConversationHandler
+ASK_NAME, ASK_PHONE = range(2)
 
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
 
@@ -38,18 +42,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Словарь для хранения занятых слотов (в будущем можно использовать БД)
-# Формат: {дата: {время: id_пользователя}}
+# Формат: {дата: {время: {'user_id': ..., 'telegram_user_name': ..., 'client_name': ..., 'phone_number': ...}}}
 booked_slots = {}
 
 async def notify_admin_new_booking(context: ContextTypes.DEFAULT_TYPE, booking_info: dict) -> None:
-    """Отправляет уведомление администратору о новой брони."""
+    """Отправляет уведомление администратору о новой брони с подробностями."""
     if ADMIN_CHAT_ID is None:
         logger.warning("ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
 
     message = (
         f"🔔 **НОВАЯ ЗАПИСЬ!**\n\n"
-        f"**Клиент:** {booking_info['user_name']} (ID: {booking_info['user_id']})\n"
+        f"**Клиент:** {booking_info.get('client_name', 'Не указано')} "
+        f"(Telegram: {booking_info.get('telegram_user_name', 'Не указано')}, ID: {booking_info['user_id']})\n"
+        f"**Номер телефона:** {booking_info.get('phone_number', 'Не указан')}\n"
         f"**Дата:** {booking_info['date'].strftime('%d.%m.%Y')}\n"
         f"**Время:** {booking_info['time']}"
     )
@@ -145,60 +151,168 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         reply_markup=reply_markup
     )
 
-async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает выбор времени и подтверждает запись."""
+async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Обратите внимание на int в конце
+    """Обрабатывает выбор времени и начинает запрос имени/телефона."""
     query = update.callback_query
     await query.answer()
 
     if query.data == "ignore": 
         await query.answer("Это время недоступно.") 
-        return
+        return ConversationHandler.END # Завершаем диалог, если нажата неактивная кнопка
 
     parts = query.data.split("_")
     selected_date_str = parts[2]
     selected_time_str = parts[3]
-    user_id = update.effective_user.id
-    user_name = update.effective_user.full_name
+    
+    # Сохраняем выбранные дату и время во временных данных пользователя (user_data)
+    context.user_data['selected_date'] = selected_date_str
+    context.user_data['selected_time'] = selected_time_str
 
-    # Создаем offset-aware datetime для выбранного слота
+    # Перепроверяем, не является ли слот прошедшим или занятым прямо перед бронированием
     selected_date_naive = datetime.date.fromisoformat(selected_date_str)
     selected_time_naive = datetime.time.fromisoformat(selected_time_str)
     selected_datetime_aware = TIMEZONE.localize(datetime.datetime.combine(selected_date_naive, selected_time_naive))
 
-    # Получаем текущее время с учетом часового пояса
     now_aware = datetime.datetime.now(TIMEZONE)
 
-    # Проверяем, не является ли слот прошедшим или занятым прямо перед бронированием
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1): 
         await query.edit_message_text("К сожалению, это время уже прошло. Пожалуйста, выберите другое.")
-        return
+        return ConversationHandler.END
     
     if booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
         await query.edit_message_text("К сожалению, это время уже занято. Пожалуйста, выберите другое.")
-        return
+        return ConversationHandler.END
 
+    # Если все проверки пройдены, просим имя
+    await query.edit_message_text("Отлично! Теперь введите ваше имя (например, 'Иван'):")
+    return ASK_NAME # Переходим в состояние ASK_NAME
 
-    # Если слот свободен и не в прошлом, бронируем
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Получает имя пользователя и просит номер телефона."""
+    user_name = update.message.text
+    if not user_name:
+        await update.message.reply_text("Пожалуйста, введите ваше имя корректно.")
+        return ASK_NAME # Остаемся в этом состоянии, если имя пустое
+
+    context.user_data['user_name_for_booking'] = user_name # Сохраняем имя
+    await update.message.reply_text(
+        "Теперь, пожалуйста, введите ваш номер телефона (например, '+380ХХХХХХХХХ') для связи. "
+        "Это поможет нам подтвердить вашу запись и связаться с вами при необходимости."
+    )
+    return ASK_PHONE # Переходим в состояние ASK_PHONE
+
+async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Получает номер телефона и предлагает подтвердить запись."""
+    phone_number = update.message.text
+    if not phone_number:
+        await update.message.reply_text("Пожалуйста, введите ваш номер телефона корректно.")
+        return ASK_PHONE # Остаемся в этом состоянии, если телефон пустой
+
+    # Здесь можно добавить более строгую валидацию номера телефона, например, через регулярные выражения
+    # Пока что просто проверяем, что строка не пустая.
+    
+    context.user_data['phone_number'] = phone_number # Сохраняем номер телефона
+
+    selected_date_str = context.user_data['selected_date']
+    selected_time_str = context.user_data['selected_time']
+    user_name = context.user_data['user_name_for_booking']
+    
+    confirmation_text = (
+        f"Пожалуйста, проверьте данные:\n\n"
+        f"📅 **Дата:** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
+        f"⏰ **Время:** {selected_time_str}\n"
+        f"👤 **Имя:** {user_name}\n"
+        f"📞 **Телефон:** {phone_number}\n\n"
+        "Все верно?"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_booking")],
+        [InlineKeyboardButton("❌ Отменить", callback_data="cancel_booking")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(confirmation_text, reply_markup=reply_markup, parse_mode='Markdown')
+    return ConversationHandler.END # Завершаем ConversationHandler, так как дальше будет CallbackQueryHandler
+                                  # CallbackQueryHandler не нуждается в состоянии ConversationHandler
+                                  # и обрабатывается отдельно. Если пользователь нажмет кнопку, он пойдет по пути confirm_booking/cancel_booking.
+
+async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Подтверждает бронирование после проверки данных."""
+    query = update.callback_query
+    await query.answer()
+
+    selected_date_str = context.user_data.get('selected_date')
+    selected_time_str = context.user_data.get('selected_time')
+    user_name = context.user_data.get('user_name_for_booking')
+    phone_number = context.user_data.get('phone_number')
+    user_id = update.effective_user.id
+    telegram_user_name = update.effective_user.full_name # Имя пользователя в Telegram
+
+    # Проверка на случай, если данные почему-то потерялись (хотя вряд ли)
+    if not all([selected_date_str, selected_time_str, user_name, phone_number]):
+        await query.edit_message_text("Извините, произошла ошибка. Пожалуйста, начните запись заново через /start.")
+        return ConversationHandler.END
+
+    # Финальная проверка слота перед записью
+    selected_date_naive = datetime.date.fromisoformat(selected_date_str)
+    selected_time_naive = datetime.time.fromisoformat(selected_time_str)
+    selected_datetime_aware = TIMEZONE.localize(datetime.datetime.combine(selected_date_naive, selected_time_naive))
+    now_aware = datetime.datetime.now(TIMEZONE)
+
+    if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1) or booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
+        await query.edit_message_text("К сожалению, выбранное время уже недоступно. Пожалуйста, выберите другое.")
+        return ConversationHandler.END
+
+    # Бронируем слот
     if selected_date_str not in booked_slots:
         booked_slots[selected_date_str] = {}
-    booked_slots[selected_date_str][selected_time_str] = user_id
+    
+    # Сохраняем полную информацию о бронировании
+    booked_slots[selected_date_str][selected_time_str] = {
+        'user_id': user_id,
+        'telegram_user_name': telegram_user_name, # Можно сохранить и имя из Telegram
+        'client_name': user_name,
+        'phone_number': phone_number
+    }
 
     confirmation_message = (
-        f"✅ Отлично, {user_name}! Вы успешно записаны на шиномонтаж:\n\n"
+        f"✅ Отлично, {user_name}! Ваша запись подтверждена:\n\n"
         f"📅 **Дата:** {selected_date_naive.strftime('%d.%m.%Y')}\n"
-        f"⏰ **Время:** {selected_time_str}\n\n"
+        f"⏰ **Время:** {selected_time_str}\n"
+        f"📞 Мы свяжемся с вами по номеру {phone_number}.\n\n"
         "Ждем вас!"
     )
     await query.edit_message_text(confirmation_message, parse_mode='Markdown')
 
-    # Отправляем уведомление администратору
-    booking_info = {
+    # Отправляем уведомление администратору с полной информацией
+    admin_booking_info = {
         "user_id": user_id,
         "user_name": user_name,
         "date": selected_date_naive,
-        "time": selected_time_str
+        "time": selected_time_str,
+        "phone_number": phone_number,
+        "telegram_user_name": telegram_user_name
     }
-    await notify_admin_new_booking(context, booking_info)
+    await notify_admin_new_booking(context, admin_booking_info)
+
+    # Очищаем данные пользователя после успешной записи
+    context.user_data.clear() 
+    return ConversationHandler.END
+
+async def cancel_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Отменяет процесс бронирования."""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Запись отменена. Если хотите записаться снова, используйте /start.")
+    context.user_data.clear() # Очищаем данные пользователя
+    return ConversationHandler.END
+
+async def cancel_booking_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Отменяет текущий процесс записи с помощью команды /cancel."""
+    await update.message.reply_text("Процесс записи отменен. Вы можете начать заново с помощью /start.")
+    context.user_data.clear() # Очищаем данные пользователя
+    return ConversationHandler.END
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -218,13 +332,28 @@ def main() -> None:
 
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Регистрируем обработчики
+    # Регистрация обработчиков
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(book_appointment, pattern="^book_appointment$"))
     application.add_handler(CallbackQueryHandler(select_date, pattern="^select_date_"))
-    application.add_handler(CallbackQueryHandler(select_time, pattern="^select_time_"))
+    
+    # ConversationHandler для процесса записи
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(select_time, pattern="^select_time_")], # Начинаем диалог по выбору времени
+        states={
+            ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)], # Состояние ожидания имени
+            ASK_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)], # Состояние ожидания телефона
+        },
+        fallbacks=[CommandHandler("cancel", cancel_booking_command)], # Обработчик отмены из любого состояния
+    )
+    application.add_handler(conv_handler)
+    
+    # Обработчики для кнопок подтверждения/отмены, которые срабатывают после завершения ConversationHandler
+    application.add_handler(CallbackQueryHandler(confirm_booking, pattern="^confirm_booking$"))
+    application.add_handler(CallbackQueryHandler(cancel_booking, pattern="^cancel_booking$"))
+
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo)) # Остальные текстовые сообщения
 
     # Запускаем бота
     application.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -232,3 +361,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
