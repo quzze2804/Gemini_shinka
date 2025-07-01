@@ -9,6 +9,14 @@ from telegram.ext import (
     ContextTypes,
 )
 import datetime
+import os # Для os.environ.get, хотя пока используем жестко заданные значения
+
+# --- ВАШИ ДАННЫЕ ---
+# Лучше использовать os.environ.get("TELEGRAM_BOT_TOKEN") на Railway для безопасности
+TOKEN = "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8" 
+ADMIN_USER_ID = 7285220061  # ID пользователя для уведомлений о новой брони
+# --- КОНЕЦ ВАШИХ ДАННЫХ ---
+
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,6 +27,21 @@ logger = logging.getLogger(__name__)
 # Словарь для хранения занятых слотов (в будущем можно использовать БД)
 # Формат: {дата: {время: id_пользователя}}
 booked_slots = {}
+
+async def notify_admin_new_booking(context: ContextTypes.DEFAULT_TYPE, booking_info: dict) -> None:
+    """Отправляет уведомление администратору о новой брони."""
+    message = (
+        f"🔔 **НОВАЯ ЗАПИСЬ!**\n\n"
+        f"**Клиент:** {booking_info['user_name']} (ID: {booking_info['user_id']})\n"
+        f"**Дата:** {booking_info['date'].strftime('%d.%m.%Y')}\n"
+        f"**Время:** {booking_info['time']}"
+    )
+    try:
+        await context.bot.send_message(chat_id=ADMIN_USER_ID, text=message, parse_mode='Markdown')
+        logger.info(f"Уведомление о новой записи отправлено администратору {ADMIN_USER_ID}")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке уведомления администратору: {e}")
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет приветственное сообщение с кнопкой записи."""
@@ -63,21 +86,31 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     current_time_slot = datetime.datetime.combine(selected_date, start_time)
 
+    # Проверяем, если дата сегодня и время уже прошло
+    now = datetime.datetime.now()
+    
     while current_time_slot.time() <= end_time:
         slot_str = current_time_slot.strftime("%H:%M")
+        
         # Проверяем, занят ли слот
         is_booked = booked_slots.get(selected_date_str, {}).get(slot_str) is not None
+        
+        # Проверяем, если слот в прошлом (для текущего дня)
+        is_past_slot = (selected_date == now.date() and current_time_slot < now)
         
         button_text = f"{slot_str}"
         if is_booked:
             button_text += " (Занято)"
-            
+        elif is_past_slot:
+            button_text += " (Прошло)"
+
         callback_data = f"select_time_{selected_date_str}_{slot_str}"
         
+        # Отключаем кнопку, если слот занят или в прошлом
+        is_disabled = is_booked or is_past_slot
+
         keyboard.append(
-            [InlineKeyboardButton(button_text, callback_data=callback_data, 
-                                  # Отключаем кнопку, если слот занят
-                                  callback_data=callback_data if not is_booked else "ignore")] 
+            [InlineKeyboardButton(button_text, callback_data=callback_data if not is_disabled else "ignore")] 
         )
         current_time_slot += interval
 
@@ -95,7 +128,7 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     query = update.callback_query
     await query.answer()
 
-    if query.data == "ignore": # Если нажали на "занято"
+    if query.data == "ignore": # Если нажали на "занято" или "прошло"
         return
 
     parts = query.data.split("_")
@@ -116,8 +149,17 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"⏰ **Время:** {selected_time_str}\n\n"
             "Ждем вас!"
         )
-        # В будущем здесь будет логика для сохранения в БД и отправки уведомления
         await query.edit_message_text(confirmation_message, parse_mode='Markdown')
+
+        # Отправляем уведомление администратору
+        booking_info = {
+            "user_id": user_id,
+            "user_name": user_name,
+            "date": datetime.date.fromisoformat(selected_date_str),
+            "time": selected_time_str
+        }
+        await notify_admin_new_booking(context, booking_info)
+
     else:
         await query.edit_message_text("К сожалению, это время уже занято. Пожалуйста, выберите другое.")
 
@@ -133,8 +175,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     """Запускает бота."""
-    # Используем Application builder для новой версии python-telegram-bot
-    application = Application.builder().token("YOUR_BOT_TOKEN").build() # !!! ЗАМЕНИТЕ НА ВАШ ТОКЕН ИЛИ ИСПОЛЬЗУЙТЕ OS.ENVIRON.GET !!!
+    application = Application.builder().token(TOKEN).build()
 
     # Регистрируем обработчики
     application.add_handler(CommandHandler("start", start))
