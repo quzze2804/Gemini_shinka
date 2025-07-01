@@ -9,12 +9,13 @@ from telegram.ext import (
     ContextTypes,
 )
 import datetime
-import os # Для os.environ.get, хотя пока используем жестко заданные значения
+import os 
 
-# --- ВАШИ ДАННЫЕ ---
-# Лучше использовать os.environ.get("TELEGRAM_BOT_TOKEN") на Railway для безопасности
-TOKEN = "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8" 
-ADMIN_USER_ID = 7285220061  # ID пользователя для уведомлений о новой брони
+# --- ВАШИ ДАННЫЕ (ЛУЧШЕ ИСПОЛЬЗОВАТЬ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ НА RAILWAY) ---
+# Если вы уже настроили переменные окружения на Railway, то эти строки будут брать значения оттуда.
+# Если нет, то используйте жестко заданные значения, но помните о безопасности.
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8") 
+ADMIN_USER_ID = int(os.environ.get("ADMIN_USER_ID", "7285220061")) # Важно преобразовать в int
 # --- КОНЕЦ ВАШИХ ДАННЫХ ---
 
 
@@ -86,7 +87,7 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     current_time_slot = datetime.datetime.combine(selected_date, start_time)
 
-    # Проверяем, если дата сегодня и время уже прошло
+    # Получаем текущее время для сравнения
     now = datetime.datetime.now()
     
     while current_time_slot.time() <= end_time:
@@ -96,19 +97,21 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         is_booked = booked_slots.get(selected_date_str, {}).get(slot_str) is not None
         
         # Проверяем, если слот в прошлом (для текущего дня)
+        # Сравниваем дату и время. Если дата сегодня и время слота уже прошло
         is_past_slot = (selected_date == now.date() and current_time_slot < now)
         
         button_text = f"{slot_str}"
         if is_booked:
             button_text += " (Занято)"
         elif is_past_slot:
-            button_text += " (Прошло)"
+            button_text += " (Прошло)" # Метка для прошедших слотов
 
         callback_data = f"select_time_{selected_date_str}_{slot_str}"
         
         # Отключаем кнопку, если слот занят или в прошлом
         is_disabled = is_booked or is_past_slot
 
+        # Добавляем кнопку. Если она отключена, callback_data будет "ignore"
         keyboard.append(
             [InlineKeyboardButton(button_text, callback_data=callback_data if not is_disabled else "ignore")] 
         )
@@ -129,6 +132,7 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await query.answer()
 
     if query.data == "ignore": # Если нажали на "занято" или "прошло"
+        await query.answer("Это время недоступно.") # Отправляем короткое всплывающее уведомление
         return
 
     parts = query.data.split("_")
@@ -138,6 +142,14 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_name = update.effective_user.full_name
 
     # Проверяем, свободен ли слот перед бронированием
+    # Также перепроверяем, не является ли слот прошедшим, чтобы избежать гонки
+    selected_datetime = datetime.datetime.combine(datetime.date.fromisoformat(selected_date_str), datetime.time.fromisoformat(selected_time_str))
+    now = datetime.datetime.now()
+
+    if selected_datetime < now:
+        await query.edit_message_text("К сожалению, это время уже прошло. Пожалуйста, выберите другое.")
+        return
+
     if booked_slots.get(selected_date_str, {}).get(selected_time_str) is None:
         if selected_date_str not in booked_slots:
             booked_slots[selected_date_str] = {}
@@ -175,6 +187,10 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     """Запускает бота."""
+    if not TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN environment variable not set. Exiting.")
+        return
+
     application = Application.builder().token(TOKEN).build()
 
     # Регистрируем обработчики
