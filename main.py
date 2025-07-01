@@ -373,7 +373,7 @@ async def notify_admin_reschedule(context: ContextTypes.DEFAULT_TYPE, old_bookin
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления администратору: {e}")
 
-# --- НОВАЯ ФУНКЦИЯ ДЛЯ ОТПРАВКИ НАПОМИНАНИЯ ---
+# --- ФУНКЦИЯ ДЛЯ ОТПРАВКИ НАПОМИНАНИЯ ---
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет напоминание о предстоящей записи."""
     job = context.job
@@ -396,30 +396,26 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error(f"Ошибка при отправке напоминания пользователю {chat_id}: {e}")
 
-# --- НОВАЯ ФУНКЦИЯ ДЛЯ ТЕСТОВОГО НАПОМИНАНИЯ ---
+# --- ФУНКЦИЯ ДЛЯ ТЕСТОВОГО НАПОМИНАНИЯ ---
 async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет тестовое напоминание, только для админа."""
     user_id = update.effective_user.id
     
-    # --- СТРОКИ ДЛЯ ДЕБАГА ---
     logger.info(f"DEBUG: test_reminder_command received. Sender user_id: {user_id}")
     logger.info(f"DEBUG: ADMIN_CHAT_ID configured: {ADMIN_CHAT_ID}")
-    # --------------------------
 
     # Проверяем, является ли пользователь администратором
     if ADMIN_CHAT_ID is None or user_id != ADMIN_CHAT_ID:
-        # --- СТРОКА ДЛЯ ДЕБАГА ---
         logger.warning(f"DEBUG: Access denied for user {user_id}. ADMIN_CHAT_ID is {ADMIN_CHAT_ID}")
-        # -------------------------
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
         return
 
-    # --- ДОБАВЛЕНА ПРОВЕРКА job_queue, если он вдруг None ---
+    # В PTB 22.x job_queue уже привязан к application и доступен через context.job_queue
+    # Если эта проверка срабатывает, значит, что-то пошло совсем не так при инициализации Application.
     if context.job_queue is None:
-        logger.error("JobQueue is None in context for test_reminder_command. This should not happen if bot started correctly.")
+        logger.error("JobQueue is None in context for test_reminder_command. This should not happen if bot started correctly with PTB 22.x.")
         await update.message.reply_text("Извините, произошла внутренняя ошибка при планировании напоминания. Пожалуйста, сообщите администратору.")
         return
-    # --------------------------------------------------------
 
     chat_id = update.effective_chat.id
     # Запланировать напоминание через 10 секунд от текущего момента
@@ -442,6 +438,7 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
     current_jobs = context.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
         job.schedule_removal() # Удаляем старую задачу
+        logger.info(f"Удалено предыдущее тестовое напоминание: {job.name}")
         
     # Планируем отправку напоминания через 10 секунд
     context.job_queue.run_once(
@@ -456,7 +453,7 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
     )
     logger.info(f"Тестовое напоминание запланировано для {chat_id}")
 
-# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+# --- КОНЕЦ ФУНКЦИИ ТЕСТОВОГО НАПОМИНАНИЯ ---
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -768,8 +765,9 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     else:
         await notify_admin_new_booking(context, admin_booking_info)
 
+    # Планирование напоминания за день до
     reminder_time = selected_datetime_aware - datetime.timedelta(days=1)
-    if reminder_time > now_aware:
+    if reminder_time > now_aware: # Проверяем, что время напоминания еще в будущем
         job_name = f"reminder_{selected_date_str}_{selected_time_str}"
         context.job_queue.run_once(
             send_reminder,
@@ -984,12 +982,10 @@ def main() -> None:
         logger.error("BOT_TOKEN environment variable not set. Exiting.")
         return 
 
+    # В PTB 22.x JobQueue автоматически привязывается к Application.
+    # Больше не нужно вручную инициализировать application.job_queue = JobQueue()
     application = Application.builder().token(BOT_TOKEN).build()
-    # ---- НАЧАЛО ИЗМЕНЕНИЙ JOBQUEUE ----
-    application.job_queue = JobQueue() 
-    application.job_queue.set_application(application)
-    # ---- КОНЕЦ ИЗМЕНЕНИЙ JOBQUEUE ----
-
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("test_reminder", test_reminder_command))
     application.add_handler(CallbackQueryHandler(set_language, pattern="^set_lang_"))
@@ -1004,7 +1000,7 @@ def main() -> None:
     
     reschedule_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(reschedule_specific_booking, pattern="^reschedule_specific_booking_")],
-        states={}, 
+        states={}, # Состояния будут управляться в book_appointment и select_time
         fallbacks=[CommandHandler("cancel", cancel_booking_command), CallbackQueryHandler(cancel_booking_process, pattern="^cancel_booking_process$")],
         map_to_parent={
             ConversationHandler.END: ConversationHandler.END 
