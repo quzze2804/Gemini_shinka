@@ -779,7 +779,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         logger.info(f"Напоминание запланировано для {job_name} на {reminder_time}")
     else:
-        logger.warning(f"Напоминание для {selected_date_str} {selected_time_str} не запланировано, так как время уже прошло.")
+        logger.warning(f"Напопоминание для {selected_date_str} {selected_time_str} не запланировано, так как время уже прошло.")
 
     context.user_data.clear() 
     return ConversationHandler.END
@@ -977,25 +977,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Отправляет сообщение с помощью."""
     await update.message.reply_text(get_text(context, 'help_message'))
 
-# Удален echo-хэндлер, который дублировал сообщения.
-# async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-#     """Повторяет текстовые сообщения пользователя."""
-#     await update.message.reply_text(update.message.text)
-
 
 def main() -> None:
     """Запускает бота."""
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN environment variable not set. Exiting.")
-        return # <-- Здесь происходит выход, если токен не найден
+        return 
 
-        application = Application.builder().token(BOT_TOKEN).build()
-    application.job_queue = JobQueue() # <-- Добавляем эту строку
-    application.job_queue.set_application(application) # <-- И эту строку
-    
+    application = Application.builder().token(BOT_TOKEN).build()
+    # ---- НАЧАЛО ИЗМЕНЕНИЙ JOBQUEUE ----
+    application.job_queue = JobQueue() 
+    application.job_queue.set_application(application)
+    # ---- КОНЕЦ ИЗМЕНЕНИЙ JOBQUEUE ----
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("test_reminder", test_reminder_command)) # <-- Добавлена команда /test_reminder
+    application.add_handler(CommandHandler("test_reminder", test_reminder_command))
     application.add_handler(CallbackQueryHandler(set_language, pattern="^set_lang_"))
     application.add_handler(CallbackQueryHandler(book_appointment, pattern="^book_appointment$"))
     application.add_handler(CallbackQueryHandler(select_date, pattern="^select_date_"))
@@ -1030,7 +1026,6 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(confirm_booking, pattern="^confirm_booking$"))
     
     application.add_handler(CommandHandler("help", help_command))
-    # application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo)) # <-- ЭТА СТРОКА УДАЛЕНА
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
