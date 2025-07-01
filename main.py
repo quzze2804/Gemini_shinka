@@ -14,13 +14,13 @@ import os
 import pytz 
 
 # --- КОНФИГУРАЦИЯ БОТА ---
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8") 
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF3jy4_xbRvolfDBbbCHy6Tt8") 
 
 try:
-    ADMIN_CHAT_ID = int(os.environ.get("TELEGRAM_ADMIN_CHAT_ID", "7285220061")) # Обновлено имя переменной
+    ADMIN_CHAT_ID = int(os.environ.get("TELEGRAM_ADMIN_CHAT_ID", "7285220061"))
 except (ValueError, TypeError):
     ADMIN_CHAT_ID = None 
-    logging.warning("TELEGRAM_ADMIN_CHAT_ID не установлен или некорректен в переменных окружения. Уведомления админу могут не работать.") # Обновлено имя переменной
+    logging.warning("TELEGRAM_ADMIN_CHAT_ID не установлен или некорректен в переменных окружения. Уведомления админу могут не работать.")
 
 TIMEZONE = pytz.timezone('Europe/Kiev') 
 
@@ -39,19 +39,272 @@ logger = logging.getLogger(__name__)
 
 booked_slots = {}
 
+# --- СЛОВАРЬ ПЕРЕВОДОВ ---
+# Все тексты бота собраны здесь для удобства перевода и выбора языка
+translations = {
+    'ru': {
+        'choose_language': "Пожалуйста, выберите язык:\nБудь ласка, оберіть мову:",
+        'lang_button_ru': "Русский",
+        'lang_button_uk': "Українська",
+        'welcome_message': (
+            "Привет, {user_full_name}! 👋\n\n"
+            "Добро пожаловать в мир комфортного и быстрого шиномонтажа!\n"
+            "Я — ваш личный помощник, созданный для того, чтобы забота о шинах вашего автомобиля была максимально *удобной и беззаботной*. ✨\n\n"
+            "Забудьте об очередях и звонках! С моей помощью вы можете:\n"
+            "🗓️ **Быстро записаться** на удобное время.\n"
+            "📋 **Проверить или перенести** свои записи.\n"
+            "ℹ️ **Получить всю необходимую информацию** о наших услугах.\n\n"
+            "Готовы привести свои шины в порядок?\n"
+            "Выберите действие ниже, чтобы начать!"
+        ),
+        'btn_book_appointment': "🗓️ Записаться на шиномонтаж",
+        'btn_my_bookings': "📋 Мои записи",
+        'btn_info_and_faq': "ℹ️ Информация и FAQ",
+        'btn_our_location': "📍 Наше местоположение",
+        'btn_main_menu': "⬅️ Главное меню",
+        'select_day_for_booking': "Выберите день для записи:",
+        'select_time_for_booking': "Выберите время для записи на {date}:",
+        'time_unavailable': "Это время недоступно.",
+        'time_passed': "К сожалению, это время уже прошло. Пожалуйста, выберите другое.",
+        'time_booked': "К сожалению, это время уже занято. Пожалуйста, выберите другое.",
+        'enter_name': "Отлично! Теперь введите ваше имя (например, 'Иван'):",
+        'name_incorrect': "Пожалуйста, введите ваше имя корректно.",
+        'enter_phone': (
+            "Теперь, пожалуйста, введите ваш номер телефона (например, '+380ХХХХХХХХХ') для связи. "
+            "Это поможет нам подтвердить вашу запись и связаться с вами при необходимости."
+        ),
+        'phone_incorrect': "Пожалуйста, введите ваш номер телефона корректно.",
+        'check_data': "Пожалуйста, проверьте данные:",
+        'date_label': "Дата:",
+        'time_label': "Время:",
+        'name_label': "Имя:",
+        'phone_label': "Телефон:",
+        'all_correct': "Все верно?",
+        'btn_confirm': "✅ Подтвердить",
+        'btn_cancel_process': "❌ Отменить",
+        'error_try_again': "Извините, произошла ошибка. Пожалуйста, начните запись заново через /start.",
+        'booking_confirmed': (
+            "✅ Отлично, {user_name}! Ваша запись подтверждена:\n\n"
+            "📅 **Дата:** {date_formatted}\n"
+            "⏰ **Время:** {time}\n"
+            "📞 Мы свяжемся с вами по номеру {phone_number}.\n\n"
+            "Ждем вас!"
+        ),
+        'process_cancelled': "Процесс записи отменен. Если хотите записаться снова, используйте /start.",
+        'no_active_bookings': "У вас пока нет активных записей. Хотите записаться?",
+        'your_current_bookings': "Ваши текущие записи:\n\n",
+        'btn_cancel_booking': "❌ Отменить {time} {date}",
+        'btn_reschedule_booking': "🔄 Перенести {time} {date}",
+        'not_your_booking_cancel': "Вы не можете отменить эту запись, так как она сделана не вами.",
+        'booking_not_found': "Эта запись не найдена или уже отменена.",
+        'booking_cancelled_success': "✅ Ваша запись на {date_formatted} в {time} успешно отменена.",
+        'reschedule_intro': (
+            "Вы переносите запись на {old_date_formatted} в {old_time}.\n"
+            "Теперь выберите новую дату и время:"
+        ),
+        'not_your_booking_reschedule': "Вы не можете перенести эту запись, так как она сделана не вами.",
+        'faq_title': "**О нашем шиномонтаже:**",
+        'faq_text': (
+            "Мы предоставляем полный спектр услуг по шиномонтажу для легковых автомобилей. "
+            "Быстро, качественно, с гарантией!\n\n"
+            "**Часто задаваемые вопросы (FAQ):**\n\n"
+            "**❓ Какие услуги вы предлагаете?**\n"
+            "✅ Мы выполняем монтаж/демонтаж шин, балансировку колес, ремонт проколов, сезонную смену резины, и проверку давления.\n\n"
+            "**❓ Какова стоимость услуг?**\n"
+            "✅ Стоимость зависит от типа вашего автомобиля и размера колес. Примерные цены:\n"
+            "  - Смена резины R13-R15: от 400 грн\n"
+            "  - Смена резины R16-R18: от 600 грн\n"
+            "  - Балансировка: от 100 грн/колесо\n"
+            "  - Ремонт прокола: от 150 грн\n"
+            "Для точной оценки свяжитесь с нами или приезжайте на консультацию!\n\n"
+            "**❓ Сколько времени занимает шиномонтаж?**\n"
+            "✅ Обычно полная смена комплекта шин занимает от 30 до 60 минут. Ремонт одного колеса - 15-30 минут.\n\n"
+            "**❓ Могу ли я приехать без записи?**\n"
+            "✅ Да, можете, но мы не можем гарантировать быстрое обслуживание. Для вашего удобства рекомендуем записываться через бота.\n\n"
+            "**❓ Что делать, если я опаздываю?**\n"
+            "✅ Пожалуйста, сообщите нам как можно скорее! Если вы опаздываете более чем на 15 минут, ваша запись может быть перенесена.\n\n"
+            "**График работы:**\n"
+            "Пн-Пт: 08:00 - 17:00\n"
+            "Сб-Вс: Выходной"
+        ),
+        'our_location_address': "Мы находимся по адресу: г. Одесса, ул. Успенская, 1 (это примерный адрес, замените на свой!)\n\n",
+        'help_message': "Используйте команду /start для начала работы с ботом.",
+        'admin_new_booking': (
+            "🔔 **НОВАЯ ЗАПИСЬ!**\n\n"
+            "**Клиент:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
+            "**Номер телефона:** {phone_number}\n"
+            "**Дата:** {date_formatted}\n"
+            "**Время:** {time}"
+        ),
+        'admin_cancellation': (
+            "❌ **ОТМЕНА ЗАПИСИ!**\n\n"
+            "**Клиент:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
+            "**Номер телефона:** {phone_number}\n"
+            "**Отменена дата:** {date_formatted}\n"
+            "**Отменено время:** {time}"
+        ),
+        'admin_reschedule': (
+            "🔄 **ПЕРЕНОС ЗАПИСИ!**\n\n"
+            "**Клиент:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
+            "**Номер телефона:** {phone_number}\n\n"
+            "**Старая запись:**\n"
+            "  Дата: {old_date_formatted}\n"
+            "  Время: {old_time}\n\n"
+            "**Новая запись:**\n"
+            "  Дата: {new_date_formatted}\n"
+            "  Время: {new_time}"
+        ),
+        'not_specified': "Не указано",
+        'not_specified_phone': "Не указан",
+        'unknown': "Неизвестно",
+        'past_slot': " (Прошло)",
+        'booked_slot': " (Занято)",
+        'back_to_day_select': "⬅️ Назад к выбору дня",
+        'back_to_my_bookings': "⬅️ Назад к моим записям",
+    },
+    'uk': {
+        'choose_language': "Будь ласка, оберіть мову:\nPlease choose your language:",
+        'lang_button_ru': "Російська",
+        'lang_button_uk': "Українська",
+        'welcome_message': (
+            "Привіт, {user_full_name}! 👋\n\n"
+            "Ласкаво просимо у світ комфортного та швидкого шиномонтажу!\n"
+            "Я — ваш особистий помічник, створений для того, щоб турбота про шини вашого автомобіля була максимально *зручною та безтурботною*. ✨\n\n"
+            "Забудьте про черги та дзвінки! З моєю допомогою ви можете:\n"
+            "🗓️ **Швидко записатися** на зручний час.\n"
+            "📋 **Перевірити або перенести** свої записи.\n"
+            "ℹ️ **Отримати всю необхідну інформацію** про наші послуги.\n\n"
+            "Готові привести свої шини до ладу?\n"
+            "Оберіть дію нижче, щоб розпочати!"
+        ),
+        'btn_book_appointment': "🗓️ Записатися на шиномонтаж",
+        'btn_my_bookings': "📋 Мої записи",
+        'btn_info_and_faq': "ℹ️ Інформація та FAQ",
+        'btn_our_location': "📍 Наше місцезнаходження",
+        'btn_main_menu': "⬅️ Головне меню",
+        'select_day_for_booking': "Оберіть день для запису:",
+        'select_time_for_booking': "Оберіть час для запису на {date}:",
+        'time_unavailable': "Цей час недоступний.",
+        'time_passed': "На жаль, цей час вже минув. Будь ласка, оберіть інший.",
+        'time_booked': "На жаль, цей час вже зайнятий. Будь ласка, оберіть інший.",
+        'enter_name': "Чудово! Тепер введіть ваше ім'я (наприклад, 'Іван'):",
+        'name_incorrect': "Будь ласка, введіть ваше ім'я коректно.",
+        'enter_phone': (
+            "Тепер, будь ласка, введіть ваш номер телефону (наприклад, '+380ХХХХХХХХХ') для зв'язку. "
+            "Це допоможе нам підтвердити ваш запис та зв'язатися з вами за необхідності."
+        ),
+        'phone_incorrect': "Будь ласка, введіть ваш номер телефону коректно.",
+        'check_data': "Будь ласка, перевірте дані:",
+        'date_label': "Дата:",
+        'time_label': "Час:",
+        'name_label': "Ім'я:",
+        'phone_label': "Телефон:",
+        'all_correct': "Все вірно?",
+        'btn_confirm': "✅ Підтвердити",
+        'btn_cancel_process': "❌ Скасувати",
+        'error_try_again': "Вибачте, сталася помилка. Будь ласка, розпочніть запис заново через /start.",
+        'booking_confirmed': (
+            "✅ Чудово, {user_name}! Ваш запис підтверджено:\n\n"
+            "📅 **Дата:** {date_formatted}\n"
+            "⏰ **Час:** {time}\n"
+            "📞 Ми зв'яжемося з вами за номером {phone_number}.\n\n"
+            "Чекаємо на вас!"
+        ),
+        'process_cancelled': "Процес запису скасовано. Якщо бажаєте записатися знову, скористайтеся /start.",
+        'no_active_bookings': "У вас поки що немає активних записів. Бажаєте записатися?",
+        'your_current_bookings': "Ваші поточні записи:\n\n",
+        'btn_cancel_booking': "❌ Скасувати {time} {date}",
+        'btn_reschedule_booking': "🔄 Перенести {time} {date}",
+        'not_your_booking_cancel': "Ви не можете скасувати цей запис, оскільки його зроблено не вами.",
+        'booking_not_found': "Цей запис не знайдено або його вже скасовано.",
+        'booking_cancelled_success': "✅ Ваш запис на {date_formatted} о {time} успішно скасовано.",
+        'reschedule_intro': (
+            "Ви переносите запис на {old_date_formatted} о {old_time}.\n"
+            "Тепер оберіть нову дату та час:"
+        ),
+        'not_your_booking_reschedule': "Ви не можете перенести цей запис, оскільки його зроблено не вами.",
+        'faq_title': "**Про наш шиномонтаж:**",
+        'faq_text': (
+            "Ми надаємо повний спектр послуг з шиномонтажу для легкових автомобілів. "
+            "Швидко, якісно, з гарантією!\n\n"
+            "**Часті запитання (FAQ):**\n\n"
+            "**❓ Які послуги ви пропонуєте?**\n"
+            "✅ Ми виконуємо монтаж/демонтаж шин, балансування коліс, ремонт проколів, сезонну зміну гуми та перевірку тиску.\n\n"
+            "**❓ Яка вартість послуг?**\n"
+            "✅ Вартість залежить від типу вашого автомобіля та розміру коліс. Орієнтовні ціни:\n"
+            "  - Зміна гуми R13-R15: від 400 грн\n"
+            "  - Зміна гуми R16-R18: від 600 грн\n"
+            "  - Балансування: від 100 грн/колесо\n"
+            "  - Ремонт проколу: від 150 грн\n"
+            "Для точної оцінки зв'яжіться з нами або приїжджайте на консультацію!\n\n"
+            "**❓ Скільки часу займає шиномонтаж?**\n"
+            "✅ Зазвичай повна зміна комплекту шин займає від 30 до 60 хвилин. Ремонт одного колеса – 15-30 хвилин.\n\n"
+            "**❓ Чи можу я приїхати без запису?**\n"
+            "✅ Так, можете, але ми не можемо гарантувати швидке обслуговування. Для вашої зручності рекомендуємо записуватися через бота.\n\n"
+            "**❓ Що робити, якщо я запізнююся?**\n"
+            "✅ Будь ласка, повідомте нам якомога швидше! Якщо ви запізнюєтеся більш ніж на 15 хвилин, ваш запис може бути перенесено."
+            "**Графік роботи:**\n"
+            "Пн-Пт: 08:00 - 17:00\n"
+            "Сб-Нд: Вихідний"
+        ),
+        'our_location_address': "Ми знаходимося за адресою: м. Одеса, вул. Успенська, 1 (це приблизна адреса, замініть на свою!)\n\n",
+        'help_message': "Використайте команду /start для початку роботи з ботом.",
+        'admin_new_booking': (
+            "🔔 **НОВИЙ ЗАПИС!**\n\n"
+            "**Клієнт:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
+            "**Номер телефону:** {phone_number}\n"
+            "**Дата:** {date_formatted}\n"
+            "**Час:** {time}"
+        ),
+        'admin_cancellation': (
+            "❌ **СКАСУВАННЯ ЗАПИСУ!**\n\n"
+            "**Клієнт:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
+            "**Номер телефону:** {phone_number}\n"
+            "**Скасована дата:** {date_formatted}\n"
+            "**Скасований час:** {time}"
+        ),
+        'admin_reschedule': (
+            "🔄 **ПЕРЕНЕСЕННЯ ЗАПИСУ!**\n\n"
+            "**Клієнт:** {client_name} (Telegram: {telegram_user_name}, ID: {user_id})\n"
+            "**Номер телефону:** {phone_number}\n\n"
+            "**Старий запис:**\n"
+            "  Дата: {old_date_formatted}\n"
+            "  Час: {old_time}\n\n"
+            "**Новий запис:**\n"
+            "  Дата: {new_date_formatted}\n"
+            "  Час: {new_time}"
+        ),
+        'not_specified': "Не вказано",
+        'not_specified_phone': "Не вказаний",
+        'unknown': "Невідомо",
+        'past_slot': " (Минуло)",
+        'booked_slot': " (Зайнято)",
+        'back_to_day_select': "⬅️ Назад до вибору дня",
+        'back_to_my_bookings': "⬅️ Назад до моїх записів",
+    }
+}
+
+def get_text(context: ContextTypes.DEFAULT_TYPE, key: str, **kwargs) -> str:
+    """Извлекает текст на выбранном языке."""
+    user_lang = context.user_data.get('language', 'ru') # По умолчанию русский
+    text = translations.get(user_lang, translations['ru']).get(key, f"_{key}_") # Запасной вариант
+    return text.format(**kwargs)
+
+# --- ОСНОВНЫЕ ФУНКЦИИ БОТА ---
+
 async def notify_admin_new_booking(context: ContextTypes.DEFAULT_TYPE, booking_info: dict) -> None:
     """Отправляет уведомление администратору о новой брони с подробностями."""
     if ADMIN_CHAT_ID is None:
         logger.warning("TELEGRAM_ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
 
-    message = (
-        f"🔔 **НОВАЯ ЗАПИСЬ!**\n\n"
-        f"**Клиент:** {booking_info.get('client_name', 'Не указано')} "
-        f"(Telegram: {booking_info.get('telegram_user_name', 'Не указано')}, ID: {booking_info['user_id']})\n"
-        f"**Номер телефона:** {booking_info.get('phone_number', 'Не указан')}\n"
-        f"**Дата:** {booking_info['date'].strftime('%d.%m.%Y')}\n"
-        f"**Время:** {booking_info['time']}"
+    message = get_text(context, 'admin_new_booking',
+        client_name=booking_info.get('client_name', get_text(context, 'not_specified')),
+        telegram_user_name=booking_info.get('telegram_user_name', get_text(context, 'not_specified')),
+        user_id=booking_info['user_id'],
+        phone_number=booking_info.get('phone_number', get_text(context, 'not_specified_phone')),
+        date_formatted=booking_info['date'].strftime('%d.%m.%Y'),
+        time=booking_info['time']
     )
     try:
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
@@ -65,13 +318,13 @@ async def notify_admin_cancellation(context: ContextTypes.DEFAULT_TYPE, booking_
         logger.warning("TELEGRAM_ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
 
-    message = (
-        f"❌ **ОТМЕНА ЗАПИСИ!**\n\n"
-        f"**Клиент:** {booking_info.get('client_name', 'Не указано')} "
-        f"(Telegram: {booking_info.get('telegram_user_name', 'Не указано')}, ID: {booking_info['user_id']})\n"
-        f"**Номер телефона:** {booking_info.get('phone_number', 'Не указан')}\n"
-        f"**Отменена дата:** {booking_info['date'].strftime('%d.%m.%Y')}\n"
-        f"**Отменено время:** {booking_info['time']}"
+    message = get_text(context, 'admin_cancellation',
+        client_name=booking_info.get('client_name', get_text(context, 'not_specified')),
+        telegram_user_name=booking_info.get('telegram_user_name', get_text(context, 'not_specified')),
+        user_id=booking_info['user_id'],
+        phone_number=booking_info.get('phone_number', get_text(context, 'not_specified_phone')),
+        date_formatted=booking_info['date'].strftime('%d.%m.%Y'),
+        time=booking_info['time']
     )
     try:
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
@@ -85,17 +338,15 @@ async def notify_admin_reschedule(context: ContextTypes.DEFAULT_TYPE, old_bookin
         logger.warning("TELEGRAM_ADMIN_CHAT_ID не установлен, уведомление администратору не будет отправлено.")
         return
 
-    message = (
-        f"🔄 **ПЕРЕНОС ЗАПИСИ!**\n\n"
-        f"**Клиент:** {new_booking.get('client_name', 'Не указано')} "
-        f"(Telegram: {new_booking.get('telegram_user_name', 'Не указано')}, ID: {new_booking['user_id']})\n"
-        f"**Номер телефона:** {new_booking.get('phone_number', 'Не указан')}\n\n"
-        f"**Старая запись:**\n"
-        f"  Дата: {old_booking['date'].strftime('%d.%m.%Y')}\n"
-        f"  Время: {old_booking['time']}\n\n"
-        f"**Новая запись:**\n"
-        f"  Дата: {new_booking['date'].strftime('%d.%m.%Y')}\n"
-        f"  Время: {new_booking['time']}"
+    message = get_text(context, 'admin_reschedule',
+        client_name=new_booking.get('client_name', get_text(context, 'not_specified')),
+        telegram_user_name=new_booking.get('telegram_user_name', get_text(context, 'not_specified')),
+        user_id=new_booking['user_id'],
+        phone_number=new_booking.get('phone_number', get_text(context, 'not_specified_phone')),
+        old_date_formatted=old_booking['date'].strftime('%d.%m.%Y'),
+        old_time=old_booking['time'],
+        new_date_formatted=new_booking['date'].strftime('%d.%m.%Y'),
+        new_time=new_booking['time']
     )
     try:
         await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message, parse_mode='Markdown')
@@ -103,33 +354,58 @@ async def notify_admin_reschedule(context: ContextTypes.DEFAULT_TYPE, old_bookin
     except Exception as e:
         logger.error(f"Ошибка при отправке уведомления администратору: {e}")
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отправляет приветственное сообщение с кнопками записи и просмотра записей."""
+    """
+    Отправляет приветственное сообщение и предлагает выбрать язык,
+    либо сразу переходит к главному меню, если язык выбран.
+    """
     user = update.effective_user
-    welcome_message = (
-        f"Привет, {user.full_name}! 👋\n\n"
-        "Добро пожаловать в мир комфортного и быстрого шиномонтажа!\n"
-        "Я — ваш личный помощник, созданный для того, чтобы забота о шинах вашего автомобиля была максимально *удобной и беззаботной*. ✨\n\n"
-        "Забудьте об очередях и звонках! С моей помощью вы можете:\n"
-        "🗓️ **Быстро записаться** на удобное время.\n"
-        "📋 **Проверить или перенести** свои записи.\n"
-        "ℹ️ **Получить всю необходимую информацию** о наших услугах.\n\n"
-        "Готовы привести свои шины в порядок?\n"
-        "Выберите действие ниже, чтобы начать!"
-    )
+    user_lang = context.user_data.get('language')
+
+    if user_lang is None:
+        # Если язык не выбран, предлагаем выбор
+        keyboard = [
+            [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
+            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        if update.message:
+            await update.message.reply_text(translations['ru']['choose_language'], reply_markup=reply_markup)
+        else: # Для случая, когда вызывается из callback_query (например, из main_menu без языка)
+            await update.callback_query.edit_message_text(translations['ru']['choose_language'], reply_markup=reply_markup)
+    else:
+        # Если язык уже выбран, показываем основное меню
+        await show_main_menu(update, context)
+
+async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Устанавливает язык для пользователя и показывает главное меню."""
+    query = update.callback_query
+    await query.answer()
+    
+    lang_code = query.data.replace("set_lang_", "")
+    context.user_data['language'] = lang_code
+    
+    await show_main_menu(update, context)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает главное меню бота на выбранном языке."""
+    user = update.effective_user
+    welcome_message = get_text(context, 'welcome_message', user_full_name=user.full_name)
+    
     keyboard = [
-        [InlineKeyboardButton("🗓️ Записаться на шиномонтаж", callback_data="book_appointment")],
-        [InlineKeyboardButton("📋 Мои записи", callback_data="my_bookings")],
-        [InlineKeyboardButton("ℹ️ Информация и FAQ", callback_data="info_and_faq")], 
-        [InlineKeyboardButton("📍 Наше местоположение", callback_data="our_location")] 
+        [InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment")],
+        [InlineKeyboardButton(get_text(context, 'btn_my_bookings'), callback_data="my_bookings")],
+        [InlineKeyboardButton(get_text(context, 'btn_info_and_faq'), callback_data="info_and_faq")], 
+        [InlineKeyboardButton(get_text(context, 'btn_our_location'), callback_data="our_location")] 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if update.message:
+    
+    # Определяем, нужно ли отправлять новое сообщение или редактировать существующее
+    if update.message: # Если команда /start была отправлена как новое сообщение
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
-    else: 
+    elif update.callback_query: # Если переход из другого меню (например, main_menu callback)
         await update.callback_query.edit_message_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
-
 
 async def book_appointment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает дни для записи."""
@@ -146,10 +422,10 @@ async def book_appointment(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             [InlineKeyboardButton(date.strftime("%d.%m.%Y"), callback_data=f"select_date_{date.isoformat()}")]
         )
     
-    keyboard.append([InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")])
+    keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text("Выберите день для записи:", reply_markup=reply_markup)
+    await query.edit_message_text(get_text(context, 'select_day_for_booking'), reply_markup=reply_markup)
 
 async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает доступные слоты времени для выбранного дня."""
@@ -177,9 +453,9 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         
         button_text = f"{slot_str}"
         if is_booked:
-            button_text += " (Занято)"
+            button_text += get_text(context, 'booked_slot')
         elif is_past_slot:
-            button_text += " (Прошло)" 
+            button_text += get_text(context, 'past_slot') 
 
         callback_data = f"select_time_{selected_date_str}_{slot_str}"
         
@@ -191,13 +467,13 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         current_slot_datetime += interval
 
     if context.user_data.get('reschedule_mode'):
-        keyboard.append([InlineKeyboardButton("⬅️ Назад к моим записям", callback_data="my_bookings")])
+        keyboard.append([InlineKeyboardButton(get_text(context, 'back_to_my_bookings'), callback_data="my_bookings")])
     else:
-        keyboard.append([InlineKeyboardButton("⬅️ Назад к выбору дня", callback_data="book_appointment")])
+        keyboard.append([InlineKeyboardButton(get_text(context, 'back_to_day_select'), callback_data="book_appointment")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        f"Выберите время для записи на {selected_date_naive.strftime('%d.%m.%Y')}:",
+        get_text(context, 'select_time_for_booking', date=selected_date_naive.strftime('%d.%m.%Y')),
         reply_markup=reply_markup
     )
 
@@ -207,7 +483,7 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await query.answer()
 
     if query.data == "ignore": 
-        await query.answer("Это время недоступно.") 
+        await query.answer(get_text(context, 'time_unavailable')) 
         return ConversationHandler.END 
 
     parts = query.data.split("_")
@@ -224,11 +500,11 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     now_aware = datetime.datetime.now(TIMEZONE)
 
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1): 
-        await query.edit_message_text("К сожалению, это время уже прошло. Пожалуйста, выберите другое.")
+        await query.edit_message_text(get_text(context, 'time_passed'))
         return ConversationHandler.END
     
     if booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
-        await query.edit_message_text("К сожалению, это время уже занято. Пожалуйста, выберите другое.")
+        await query.edit_message_text(get_text(context, 'time_booked'))
         return ConversationHandler.END
 
     if context.user_data.get('reschedule_mode') and \
@@ -236,43 +512,40 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
        context.user_data.get('phone_number'):
         
         confirmation_text = (
-            f"Пожалуйста, проверьте данные:\n\n"
-            f"📅 **Дата:** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
-            f"⏰ **Время:** {selected_time_str}\n"
-            f"👤 **Имя:** {context.user_data['user_name_for_booking']}\n"
-            f"📞 **Телефон:** {context.user_data['phone_number']}\n\n"
-            "Все верно?"
+            f"{get_text(context, 'check_data')}\n\n"
+            f"📅 **{get_text(context, 'date_label')}** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
+            f"⏰ **{get_text(context, 'time_label')}** {selected_time_str}\n"
+            f"👤 **{get_text(context, 'name_label')}** {context.user_data['user_name_for_booking']}\n"
+            f"📞 **{get_text(context, 'phone_label')}** {context.user_data['phone_number']}\n\n"
+            f"{get_text(context, 'all_correct')}"
         )
         keyboard = [
-            [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_booking")],
-            [InlineKeyboardButton("❌ Отменить перенос", callback_data="cancel_booking_process")] 
+            [InlineKeyboardButton(get_text(context, 'btn_confirm'), callback_data="confirm_booking")],
+            [InlineKeyboardButton(get_text(context, 'btn_cancel_process'), callback_data="cancel_booking_process")] 
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(confirmation_text, reply_markup=reply_markup, parse_mode='Markdown')
         return ConversationHandler.END 
     else:
-        await query.edit_message_text("Отлично! Теперь введите ваше имя (например, 'Иван'):")
+        await query.edit_message_text(get_text(context, 'enter_name'))
         return ASK_NAME 
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Получает имя пользователя и просит номер телефона."""
     user_name = update.message.text
     if not user_name:
-        await update.message.reply_text("Пожалуйста, введите ваше имя корректно.")
+        await update.message.reply_text(get_text(context, 'name_incorrect'))
         return ASK_NAME 
 
     context.user_data['user_name_for_booking'] = user_name 
-    await update.message.reply_text(
-        "Теперь, пожалуйста, введите ваш номер телефона (например, '+380ХХХХХХХХХ') для связи. "
-        "Это поможет нам подтвердить вашу запись и связаться с вами при необходимости."
-    )
+    await update.message.reply_text(get_text(context, 'enter_phone'))
     return ASK_PHONE 
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Получает номер телефона и предлагает подтвердить запись."""
     phone_number = update.message.text
     if not phone_number:
-        await update.message.reply_text("Пожалуйста, введите ваш номер телефона корректно.")
+        await update.message.reply_text(get_text(context, 'phone_incorrect'))
         return ASK_PHONE 
 
     context.user_data['phone_number'] = phone_number 
@@ -282,17 +555,17 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_name = context.user_data['user_name_for_booking']
     
     confirmation_text = (
-        f"Пожалуйста, проверьте данные:\n\n"
-        f"📅 **Дата:** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
-        f"⏰ **Время:** {selected_time_str}\n"
-        f"👤 **Имя:** {user_name}\n"
-        f"📞 **Телефон:** {phone_number}\n\n"
-        "Все верно?"
+        f"{get_text(context, 'check_data')}\n\n"
+        f"📅 **{get_text(context, 'date_label')}** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
+        f"⏰ **{get_text(context, 'time_label')}** {selected_time_str}\n"
+        f"👤 **{get_text(context, 'name_label')}** {user_name}\n"
+        f"📞 **{get_text(context, 'phone_label')}** {phone_number}\n\n"
+        f"{get_text(context, 'all_correct')}"
     )
     
     keyboard = [
-        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_booking")],
-        [InlineKeyboardButton("❌ Отменить", callback_data="cancel_booking_process")] 
+        [InlineKeyboardButton(get_text(context, 'btn_confirm'), callback_data="confirm_booking")],
+        [InlineKeyboardButton(get_text(context, 'btn_cancel_process'), callback_data="cancel_booking_process")] 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -312,7 +585,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     telegram_user_name = update.effective_user.full_name 
 
     if not all([selected_date_str, selected_time_str, user_name, phone_number]):
-        await query.edit_message_text("Извините, произошла ошибка. Пожалуйста, начните запись заново через /start.")
+        await query.edit_message_text(get_text(context, 'error_try_again'))
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -322,7 +595,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     now_aware = datetime.datetime.now(TIMEZONE)
 
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1) or booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
-        await query.edit_message_text("К сожалению, выбранное время уже недоступно. Пожалуйста, выберите другое.")
+        await query.edit_message_text(get_text(context, 'time_booked')) # Используем 'time_booked' для обоих случаев
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -347,18 +620,17 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     }
     booked_slots[selected_date_str][selected_time_str] = new_booking_data
 
-    confirmation_message = (
-        f"✅ Отлично, {user_name}! Ваша запись подтверждена:\n\n"
-        f"📅 **Дата:** {selected_date_naive.strftime('%d.%m.%Y')}\n"
-        f"⏰ **Время:** {selected_time_str}\n"
-        f"📞 Мы свяжемся с вами по номеру {phone_number}.\n\n"
-        "Ждем вас!"
+    confirmation_message = get_text(context, 'booking_confirmed',
+        user_name=user_name,
+        date_formatted=selected_date_naive.strftime('%d.%m.%Y'),
+        time=selected_time_str,
+        phone_number=phone_number
     )
     
     # Добавляем кнопку "Мои записи"
     keyboard_after_confirm = [
-        [InlineKeyboardButton("📋 Мои записи", callback_data="my_bookings")],
-        [InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")] # Кнопка назад в главное меню
+        [InlineKeyboardButton(get_text(context, 'btn_my_bookings'), callback_data="my_bookings")],
+        [InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")] 
     ]
     reply_markup_after_confirm = InlineKeyboardMarkup(keyboard_after_confirm)
 
@@ -378,10 +650,10 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         old_booking_for_admin = {
             'date': datetime.date.fromisoformat(old_date_str),
             'time': old_time_str,
-            'client_name': old_booking_data.get('client_name', 'Неизвестно'),
-            'telegram_user_name': old_booking_data.get('telegram_user_name', 'Неизвестно'),
-            'user_id': old_booking_data.get('user_id', 'Неизвестно'),
-            'phone_number': old_booking_data.get('phone_number', 'Неизвестно')
+            'client_name': old_booking_data.get('client_name', get_text(context, 'unknown')),
+            'telegram_user_name': old_booking_data.get('telegram_user_name', get_text(context, 'unknown')),
+            'user_id': old_booking_data.get('user_id', get_text(context, 'unknown')),
+            'phone_number': old_booking_data.get('phone_number', get_text(context, 'not_specified_phone'))
         }
         await notify_admin_reschedule(context, old_booking_for_admin, admin_booking_info)
     else:
@@ -394,13 +666,13 @@ async def cancel_booking_process(update: Update, context: ContextTypes.DEFAULT_T
     """Отменяет процесс бронирования (не саму запись)."""
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Процесс записи отменен. Если хотите записаться снова, используйте /start.")
+    await query.edit_message_text(get_text(context, 'process_cancelled'))
     context.user_data.clear() 
     return ConversationHandler.END
 
 async def cancel_booking_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Отменяет текущий процесс записи с помощью команды /cancel."""
-    await update.message.reply_text("Процесс записи отменен. Вы можете начать заново с помощью /start.")
+    await update.message.reply_text(get_text(context, 'process_cancelled')) # Используем то же сообщение
     context.user_data.clear() 
     return ConversationHandler.END
 
@@ -430,15 +702,15 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     })
     
     if not user_bookings:
-        keyboard = [[InlineKeyboardButton("🗓️ Записаться на шиномонтаж", callback_data="book_appointment")]]
-        keyboard.append([InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")])
+        keyboard = [[InlineKeyboardButton(get_text(context, 'btn_book_appointment'), callback_data="book_appointment")]]
+        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("У вас пока нет активных записей. Хотите записаться?", reply_markup=reply_markup)
+        await query.edit_message_text(get_text(context, 'no_active_bookings'), reply_markup=reply_markup)
         return
 
     user_bookings.sort(key=lambda x: x['datetime_obj'])
 
-    message_text = "Ваши текущие записи:\n\n"
+    message_text = get_text(context, 'your_current_bookings')
     keyboard = []
     for booking in user_bookings:
         date_str = booking['date']
@@ -446,17 +718,17 @@ async def my_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         booking_key = f"{date_str}_{time_str}" 
         
         message_text += (
-            f"📅 **Дата:** {datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y')}\n"
-            f"⏰ **Время:** {time_str}\n"
-            f"👤 **Имя:** {booking['info'].get('client_name', 'Не указано')}\n"
-            f"📞 **Телефон:** {booking['info'].get('phone_number', 'Не указан')}\n\n"
+            f"📅 **{get_text(context, 'date_label')}** {datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y')}\n"
+            f"⏰ **{get_text(context, 'time_label')}** {time_str}\n"
+            f"👤 **{get_text(context, 'name_label')}** {booking['info'].get('client_name', get_text(context, 'not_specified'))}\n"
+            f"📞 **{get_text(context, 'phone_label')}** {booking['info'].get('phone_number', get_text(context, 'not_specified_phone'))}\n\n"
         )
         keyboard.append([
-            InlineKeyboardButton(f"❌ Отменить {time_str} {datetime.date.fromisoformat(date_str).strftime('%d.%m')}", callback_data=f"cancel_specific_booking_{booking_key}"),
-            InlineKeyboardButton(f"🔄 Перенести {time_str} {datetime.date.fromisoformat(date_str).strftime('%d.%m')}", callback_data=f"reschedule_specific_booking_{booking_key}")
+            InlineKeyboardButton(get_text(context, 'btn_cancel_booking', time=time_str, date=datetime.date.fromisoformat(date_str).strftime('%d.%m')), callback_data=f"cancel_specific_booking_{booking_key}"),
+            InlineKeyboardButton(get_text(context, 'btn_reschedule_booking', time=time_str, date=datetime.date.fromisoformat(date_str).strftime('%d.%m')), callback_data=f"reschedule_specific_booking_{booking_key}")
         ])
     
-    keyboard.append([InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")])
+    keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='Markdown')
 
@@ -478,23 +750,23 @@ async def cancel_specific_booking(update: Update, context: ContextTypes.DEFAULT_
                 del booked_slots[date_str]
             
             await query.edit_message_text(
-                f"✅ Ваша запись на {datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y')} в {time_str} успешно отменена."
+                get_text(context, 'booking_cancelled_success', date_formatted=datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y'), time=time_str)
             )
             
             admin_cancellation_info = {
                 'user_id': user_id,
                 'telegram_user_name': update.effective_user.full_name,
-                'client_name': booking_info.get('client_name', 'Не указано'),
-                'phone_number': booking_info.get('phone_number', 'Не указан'),
+                'client_name': booking_info.get('client_name', get_text(context, 'not_specified')),
+                'phone_number': booking_info.get('phone_number', get_text(context, 'not_specified_phone')),
                 'date': datetime.date.fromisoformat(date_str),
                 'time': time_str
             }
             await notify_admin_cancellation(context, admin_cancellation_info)
 
         else:
-            await query.edit_message_text("Вы не можете отменить эту запись, так как она сделана не вами.")
+            await query.edit_message_text(get_text(context, 'not_your_booking_cancel'))
     else:
-        await query.edit_message_text("Эта запись не найдена или уже отменена.")
+        await query.edit_message_text(get_text(context, 'booking_not_found'))
     
     await my_bookings(update, context) 
 
@@ -517,18 +789,14 @@ async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFA
             context.user_data['phone_number'] = booking_info.get('phone_number')
 
             await query.edit_message_text(
-                f"Вы переносите запись на {datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y')} в {time_str}.\n"
-                "Теперь выберите новую дату и время:"
+                get_text(context, 'reschedule_intro', old_date_formatted=datetime.date.fromisoformat(date_str).strftime('%d.%m.%Y'), old_time=time_str)
             )
-            # Важно: здесь мы вызываем book_appointment, которая изменит сообщение, 
-            # и возвращаем ConversationHandler.END для текущего CallbackQueryHandler.
-            # Следующий шаг (выбор времени) будет обрабатываться основным booking_conv_handler.
             await book_appointment(update, context) 
             return ConversationHandler.END 
         else:
-            await query.edit_message_text("Вы не можете перенести эту запись, так как она сделана не вами.")
+            await query.edit_message_text(get_text(context, 'not_your_booking_reschedule'))
     else:
-        await query.edit_message_text("Эта запись не найдена или уже отменена.")
+        await query.edit_message_text(get_text(context, 'booking_not_found'))
     
     await my_bookings(update, context)
     return ConversationHandler.END 
@@ -537,40 +805,18 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Возвращает пользователя в главное меню."""
     query = update.callback_query
     await query.answer()
-    context.user_data.clear() # Очищаем все временные данные, включая режим переноса
-    await start(update, context) 
+    context.user_data.pop('reschedule_mode', None) # Очищаем режим переноса, если он был установлен
+    context.user_data.pop('old_booking_key', None) # Очищаем ключ старой брони
+    await show_main_menu(update, context) # Вызываем show_main_menu, чтобы показать меню на текущем языке
 
 async def info_and_faq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет информацию и ответы на часто задаваемые вопросы."""
     query = update.callback_query
     await query.answer()
 
-    faq_text = (
-        "**О нашем шиномонтаже:**\n"
-        "Мы предоставляем полный спектр услуг по шиномонтажу для легковых автомобилей. "
-        "Быстро, качественно, с гарантией!\n\n"
-        "**Часто задаваемые вопросы (FAQ):**\n\n"
-        "**❓ Какие услуги вы предлагаете?**\n"
-        "✅ Мы выполняем монтаж/демонтаж шин, балансировку колес, ремонт проколов, сезонную смену резины, и проверку давления.\n\n"
-        "**❓ Какова стоимость услуг?**\n"
-        "✅ Стоимость зависит от типа вашего автомобиля и размера колес. Примерные цены:\n"
-        "  - Смена резины R13-R15: от 400 грн\n"
-        "  - Смена резины R16-R18: от 600 грн\n"
-        "  - Балансировка: от 100 грн/колесо\n"
-        "  - Ремонт прокола: от 150 грн\n"
-        "Для точной оценки свяжитесь с нами или приезжайте на консультацию!\n\n"
-        "**❓ Сколько времени занимает шиномонтаж?**\n"
-        "✅ Обычно полная смена комплекта шин занимает от 30 до 60 минут. Ремонт одного колеса - 15-30 минут.\n\n"
-        "**❓ Могу ли я приехать без записи?**\n"
-        "✅ Да, можете, но мы не можем гарантировать быстрое обслуживание. Для вашего удобства рекомендуем записываться через бота.\n\n"
-        "**❓ Что делать, если я опаздываю?**\n"
-        "✅ Пожалуйста, сообщите нам как можно скорее! Если вы опаздываете более чем на 15 минут, ваша запись может быть перенесена.\n\n"
-        "**График работы:**\n"
-        "Пн-Пт: 08:00 - 17:00\n"
-        "Сб-Вс: Выходной"
-    )
+    faq_text = get_text(context, 'faq_title') + "\n" + get_text(context, 'faq_text')
 
-    keyboard = [[InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")]]
+    keyboard = [[InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(faq_text, reply_markup=reply_markup, parse_mode='Markdown')
 
@@ -583,10 +829,9 @@ async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     latitude = 46.467890 # Пример: широта
     longitude = 30.730300 # Пример: долгота
     
-    # Можно добавить адрес в текстовом сообщении
-    address_text = "Мы находимся по адресу: г. Одесса, ул. Успенская, 1 (это примерный адрес, замените на свой!)\n\n"
+    address_text = get_text(context, 'our_location_address')
     
-    keyboard = [[InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")]]
+    keyboard = [[InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await context.bot.send_message(
@@ -602,19 +847,13 @@ async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         longitude=longitude
     )
 
-    # Убедитесь, что сообщение, которое вызывало этот коллбэк, тоже обновляется,
-    # чтобы не оставались старые кнопки.
-    # Так как мы отправляем новое сообщение с картой, можно просто отредактировать старое на "Пожалуйста, подождите..."
-    # или просто на пустой текст. Или не редактировать вообще, а просто оставить.
-    # В данном случае, лучше просто отправить новое сообщение.
-
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет сообщение с помощью."""
-    await update.message.reply_text("Используйте команду /start для начала работы с ботом.")
+    await update.message.reply_text(get_text(context, 'help_message'))
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Повторяет текстовые сообщения пользователя."""
+    # Эту функцию можно оставить или удалить, она просто повторяет текст
     await update.message.reply_text(update.message.text)
 
 
@@ -627,21 +866,23 @@ def main() -> None:
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Регистрация обработчиков
+    # Обработчик для команды /start, который теперь может показывать выбор языка
     application.add_handler(CommandHandler("start", start))
+    # Новый обработчик для выбора языка
+    application.add_handler(CallbackQueryHandler(set_language, pattern="^set_lang_"))
+    # Все остальные обработчики теперь работают через show_main_menu после выбора языка
     application.add_handler(CallbackQueryHandler(book_appointment, pattern="^book_appointment$"))
     application.add_handler(CallbackQueryHandler(select_date, pattern="^select_date_"))
     application.add_handler(CallbackQueryHandler(my_bookings, pattern="^my_bookings$")) 
     application.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$")) 
     application.add_handler(CallbackQueryHandler(cancel_specific_booking, pattern="^cancel_specific_booking_")) 
     
-    # Новые обработчики для FAQ и Локации
     application.add_handler(CallbackQueryHandler(info_and_faq, pattern="^info_and_faq$"))
     application.add_handler(CallbackQueryHandler(our_location, pattern="^our_location$"))
     
-    # ConversationHandler для переноса
     reschedule_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(reschedule_specific_booking, pattern="^reschedule_specific_booking_")],
-        states={}, # Состояния будут обрабатываться основным booking_conv_handler
+        states={}, 
         fallbacks=[CommandHandler("cancel", cancel_booking_command), CallbackQueryHandler(cancel_booking_process, pattern="^cancel_booking_process$")],
         map_to_parent={
             ConversationHandler.END: ConversationHandler.END 
@@ -650,7 +891,6 @@ def main() -> None:
     application.add_handler(reschedule_conv_handler)
 
 
-    # ConversationHandler для процесса новой записи
     booking_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(select_time, pattern="^select_time_")], 
         states={
