@@ -398,6 +398,61 @@ async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error(f"Ошибка при отправке напоминания пользователю {chat_id}: {e}")
 
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ТЕСТОВОГО НАПОМИНАНИЯ ---
+async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет тестовое напоминание, только для админа."""
+    user_id = update.effective_user.id
+    
+    # Проверяем, является ли пользователь администратором
+    if ADMIN_CHAT_ID is None or user_id != ADMIN_CHAT_ID:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        return
+
+    chat_id = update.effective_chat.id
+    # Запланировать напоминание через 10 секунд от текущего момента
+    test_time = datetime.datetime.now(TIMEZONE) + datetime.timedelta(seconds=10)
+    
+    # Данные, которые будут переданы в send_reminder
+    test_data = {
+        'chat_id': chat_id,
+        'user_id': user_id,
+        'date_str': test_time.strftime('%Y-%m-%d'), # Формат даты для send_reminder
+        'time_str': test_time.strftime('%H:%M'),    # Формат времени для send_reminder
+        'language': context.user_data.get('language', 'ru') # Используем текущий язык пользователя
+    }
+    
+    # Уникальное имя для тестовой задачи, чтобы можно было удалить предыдущие
+    job_name = f"test_reminder_job_{chat_id}"
+    
+    # Удаляем предыдущие тестовые напоминания для этого чата, если они есть,
+    # чтобы избежать дублирования, если команду вызывают несколько раз
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    for job in current_jobs:
+        job.schedule_removal() # Удаляем старую задачу
+        
+    # Планируем отправку напоминания через 10 секунд
+    context.job_queue.run_once(
+        send_reminder, # Функция, которую нужно вызвать
+        test_time,     # Время, когда нужно вызвать функцию
+        data=test_data, # Данные, которые будут переданы в функцию send_reminder через context.job.data
+        name=job_name  # Имя задачи для управления (удаления, поиска)
+    )
+    
+    await update.message.reply_text(
+        f"Тестовое напоминание запланировано на {test_time.strftime('%H:%M:%S')} (через 10 секунд). Проверьте личные сообщения!"
+    )
+    logger.info(f"Тестовое напоминание запланировано для {chat_id}")
+
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
+# async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     """
+#     Отправляет приветственное сообщение и предлагает выбрать язык,
+#     либо сразу переходит к главному меню, если язык выбран.
+#     """
+#     # ... остальной код функции start ...
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Отправляет приветственное сообщение и предлагает выбрать язык,
@@ -976,6 +1031,8 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo)) 
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    application.add_handler(CommandHandler("start", start))
 
 
 if __name__ == "__main__":
