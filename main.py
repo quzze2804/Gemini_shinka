@@ -8,6 +8,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
     ConversationHandler,
+    JobQueue # Убедитесь, что это импортировано
 )
 import datetime
 import os
@@ -412,6 +413,13 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
         # -------------------------
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
         return
+
+    # --- ДОБАВЛЕНА ПРОВЕРКА job_queue, если он вдруг None ---
+    if context.job_queue is None:
+        logger.error("JobQueue is None in context for test_reminder_command. This should not happen if bot started correctly.")
+        await update.message.reply_text("Извините, произошла внутренняя ошибка при планировании напоминания. Пожалуйста, сообщите администратору.")
+        return
+    # --------------------------------------------------------
 
     chat_id = update.effective_chat.id
     # Запланировать напоминание через 10 секунд от текущего момента
@@ -979,12 +987,10 @@ def main() -> None:
     """Запускает бота."""
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN environment variable not set. Exiting.")
-        return
+        return # <-- Здесь происходит выход, если токен не найден
 
-        application = Application.builder().token(BOT_TOKEN).read_timeout(7).write_timeout(7).build()
-    # application.job_queue - должен быть доступен автоматически после build()
-    # Однако, убедимся, что application.job_queue не None перед использованием.
-
+    # application создается только если BOT_TOKEN найден
+    application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("test_reminder", test_reminder_command)) # <-- Добавлена команда /test_reminder
