@@ -487,7 +487,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_lang is None:
         keyboard = [
             [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
-            [InlineKeyboardButton(translations['uk']['uk']['lang_button_uk'], callback_data="set_lang_uk")], 
+            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")], # Corrected dictionary access
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -496,7 +496,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         elif update.callback_query:
             await update.callback_query.edit_message_text(translations['ru']['choose_language'], reply_markup=reply_markup)
     else:
-        await show_main_menu(update, context)
+        # If language is already set, ensure the message is updated or sent
+        if update.message:
+            await show_main_menu(update, context)
+        elif update.callback_query:
+            # If start is called via callback (e.g. after language selection)
+            await show_main_menu(update, context)
+
 
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Устанавливает язык для пользователя и показывает главное меню."""
@@ -565,9 +571,10 @@ async def start_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu_from_booking_flow")]) # Новая callback_data
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if query:
-        await query.edit_message_text(get_text(context, 'select_day_for_booking'), reply_markup=reply_markup)
-    else: # Для случая, если вызывается не из callback_query (например, из reschedule_specific_booking)
+    # Distinguish between message and callback query updates for sending/editing message
+    if update.callback_query:
+        await update.callback_query.edit_message_text(get_text(context, 'select_day_for_booking'), reply_markup=reply_markup)
+    elif update.message: # For /start command directly starting booking flow
         await update.message.reply_text(get_text(context, 'select_day_for_booking'), reply_markup=reply_markup)
     
     return BOOKING_SELECT_DAY
@@ -602,6 +609,7 @@ async def select_date_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         elif is_past_slot:
             button_text += get_text(context, 'past_slot') 
 
+        # Changed callback_data for disabled slots to avoid triggering select_time_flow logic
         callback_data = f"select_time_flow_{selected_date_str}_{slot_str}"
         
         is_disabled = is_booked or is_past_slot
@@ -623,14 +631,19 @@ async def select_date_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
     return BOOKING_SELECT_TIME
 
+async def handle_ignore_time_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles the 'ignore_time_flow' callback when an unavailable slot is pressed."""
+    query = update.callback_query
+    await query.answer(get_text(context, 'time_unavailable'), show_alert=True)
+    return BOOKING_SELECT_TIME # Stay in the same state
+
 async def select_time_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: 
     """Обрабатывает выбор времени и начинает запрос имени/телефона."""
     query = update.callback_query
     await query.answer()
 
-    if query.data == "ignore_time_flow": 
-        await query.answer(get_text(context, 'time_unavailable'), show_alert=True) 
-        return BOOKING_SELECT_TIME # Остаемся в том же состоянии, чтобы пользователь мог выбрать другое время
+    # The ignore_time_flow is now handled by handle_ignore_time_flow before this.
+    # So this function only processes valid time selections.
 
     parts = query.data.split("_")
     selected_date_str = parts[2]
@@ -645,20 +658,21 @@ async def select_time_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     now_aware = datetime.datetime.now(TIMEZONE)
 
-    # Повторная проверка доступности
+    # Re-check availability (defensive programming)
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1): 
         await query.answer(get_text(context, 'time_passed'), show_alert=True)
-        # Перезагружаем клавиатуру времени для текущего дня
-        await select_date_flow(update, context) # Вызываем select_date_flow, чтобы обновить сообщение с временами
-        return BOOKING_SELECT_TIME # Остаемся в том же состоянии
+        # Re-send the time selection keyboard for the current day
+        # We need to explicitly call select_date_flow to refresh the message and buttons
+        await select_date_flow(update, context) 
+        return BOOKING_SELECT_TIME 
     
     if booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
         await query.answer(get_text(context, 'time_booked'), show_alert=True)
-        # Перезагружаем клавиатуру времени для текущего дня
-        await select_date_flow(update, context) # Вызываем select_date_flow, чтобы обновить сообщение с временами
+        # Re-send the time selection keyboard for the current day
+        await select_date_flow(update, context) 
         return BOOKING_SELECT_TIME
 
-    # Если время доступно, переходим к запросу имени/подтверждению
+    # If time is available, proceed to ask for name/confirmation
     if context.user_data.get('reschedule_mode') and \
        context.user_data.get('user_name_for_booking') and \
        context.user_data.get('phone_number'):
@@ -949,6 +963,7 @@ async def cancel_specific_booking(update: Update, context: ContextTypes.DEFAULT_
     else:
         await query.edit_message_text(get_text(context, 'booking_not_found'))
     
+    # After cancellation, refresh the 'My Bookings' list
     await my_bookings(update, context) 
 
 async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: 
@@ -976,12 +991,11 @@ async def reschedule_specific_booking(update: Update, context: ContextTypes.DEFA
             return await start_booking_flow(update, context) 
         else:
             await query.edit_message_text(get_text(context, 'not_your_booking_reschedule'))
+            return ConversationHandler.END # End conversation if not their booking
     else:
         await query.edit_message_text(get_text(context, 'booking_not_found'))
+        return ConversationHandler.END # End conversation if booking not found
     
-    await my_bookings(update, context)
-    return ConversationHandler.END 
-
 # --- Хелперы для выхода из ConversationHandler ---
 async def go_to_main_menu_and_end_conv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Возвращает пользователя в главное меню и завершает ConversationHandler."""
@@ -1036,17 +1050,28 @@ async def our_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     keyboard = [[InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    # First send the text message with the reply_markup
     await context.bot.send_message(
         chat_id=update.effective_chat.id, 
         text=address_text,
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+    # Then send the location
     await context.bot.send_location(
         chat_id=update.effective_chat.id, 
         latitude=latitude, 
         longitude=longitude
     )
+    # If it was a callback query, ensure the original message is cleared or updated if necessary
+    # This might depend on desired UX. For now, we send new messages.
+    # If you want to replace the original message, you might need to combine them or adjust logic.
+    if update.callback_query:
+        try:
+            await query.delete_message()
+        except Exception as e:
+            logger.warning(f"Could not delete original message after sending location: {e}")
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет сообщение с помощью."""
@@ -1061,26 +1086,28 @@ def main() -> None:
 
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Handlers that are always active
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("test_reminder", test_reminder_command))
     application.add_handler(CallbackQueryHandler(set_language, pattern="^set_lang_"))
     
-    # Новый ConversationHandler для всего процесса записи
+    # New ConversationHandler for the booking process
     booking_flow_handler = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(start_booking_flow, pattern="^book_appointment_flow_start$"), # Точка входа для новой записи
-            CallbackQueryHandler(reschedule_specific_booking, pattern="^reschedule_specific_booking_") # Точка входа для переноса записи
+            CallbackQueryHandler(start_booking_flow, pattern="^book_appointment_flow_start$"), # Entry point for new booking
+            CallbackQueryHandler(reschedule_specific_booking, pattern="^reschedule_specific_booking_") # Entry point for rescheduling
         ],
         states={
             BOOKING_SELECT_DAY: [
                 CallbackQueryHandler(select_date_flow, pattern="^select_date_flow_"),
-                CallbackQueryHandler(go_to_main_menu_and_end_conv, pattern="^main_menu_from_booking_flow") # Возврат в главное меню
+                CallbackQueryHandler(go_to_main_menu_and_end_conv, pattern="^main_menu_from_booking_flow") # Return to main menu
             ],
             BOOKING_SELECT_TIME: [
                 CallbackQueryHandler(select_time_flow, pattern="^select_time_flow_"),
-                CallbackQueryHandler(start_booking_flow, pattern="^back_to_day_select_flow"), # Возврат к выбору дня
-                CallbackQueryHandler(go_to_main_menu_and_end_conv, pattern="^main_menu_from_booking_flow"), # Возврат в главное меню
-                CallbackQueryHandler(go_to_my_bookings_and_end_conv, pattern="^my_bookings_from_reschedule_flow") # Возврат к моим записям при переносе
+                CallbackQueryHandler(handle_ignore_time_flow, pattern="^ignore_time_flow$"), # Handle disabled time slots
+                CallbackQueryHandler(start_booking_flow, pattern="^back_to_day_select_flow"), # Return to day selection
+                CallbackQueryHandler(go_to_main_menu_and_end_conv, pattern="^main_menu_from_booking_flow"), # Return to main menu
+                CallbackQueryHandler(go_to_my_bookings_and_end_conv, pattern="^my_bookings_from_reschedule_flow") # Return to my bookings during reschedule
             ],
             BOOKING_ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name_booking_flow)],
             BOOKING_ASK_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone_booking_flow)],
@@ -1092,17 +1119,18 @@ def main() -> None:
         fallbacks=[
             CommandHandler("cancel", cancel_booking_command_flow),
             CallbackQueryHandler(cancel_booking_process_flow, pattern="^cancel_booking_process_flow"),
-            CallbackQueryHandler(go_to_main_menu_and_end_conv, pattern="^main_menu") # Общий fallback в главное меню
+            # Allow going back to main menu from any state in the conversation flow
+            CallbackQueryHandler(go_to_main_menu_and_end_conv, pattern="^main_menu$") 
         ],
         map_to_parent={
-            ConversationHandler.END: ConversationHandler.END # Если этот ConversationHandler завершается, родительский тоже завершается
+            ConversationHandler.END: ConversationHandler.END # If this ConversationHandler ends, its parent (if any) also ends. Not strictly needed here as it's top-level.
         }
     )
     application.add_handler(booking_flow_handler)
 
-    # Существующие обработчики, которые не являются частью нового потока записи
+    # Existing handlers that are not part of the new booking flow (or are entry/exit points for it)
     application.add_handler(CallbackQueryHandler(my_bookings, pattern="^my_bookings$")) 
-    application.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$")) # Кнопка главного меню из общего контекста
+    application.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$")) # Main menu button from general context
     application.add_handler(CallbackQueryHandler(cancel_specific_booking, pattern="^cancel_specific_booking_")) 
     
     application.add_handler(CallbackQueryHandler(info_and_faq, pattern="^info_and_faq$"))
@@ -1116,4 +1144,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
