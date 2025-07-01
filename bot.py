@@ -2,7 +2,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
 # Замените 'YOUR_BOT_TOKEN' на токен вашего бота
-TOKEN = 'YOUR_BOT_TOKEN'
+TOKEN = '7646808754:AAFEd_-JuxKF7jy4_xbRvolfDBbbCHy6Tt8'
 
 # Ссылка на ваш канал с отзывами
 REVIEWS_CHANNEL_LINK = "https://t.me/+Qca52HCOurI0MmRi"
