@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 import datetime
 import os 
+import pytz # Добавляем импорт pytz для работы с часовыми поясами
 
 # --- КОНФИГУРАЦИЯ БОТА ---
 # Настоятельно рекомендуется использовать переменные окружения на Railway для безопасности!
@@ -20,8 +21,12 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "7646808754:AAFEd_-JuxKF7jy4_xb
 try:
     ADMIN_CHAT_ID = int(os.environ.get("ADMIN_USER_ID", "7285220061"))
 except (ValueError, TypeError):
-    ADMIN_CHAT_ID = None # Установим None, если не удалось преобразовать в int
+    ADMIN_CHAT_ID = None 
     logging.warning("ADMIN_USER_ID не установлен или некорректен в переменных окружения. Уведомления админу могут не работать.")
+
+# Определяем часовой пояс для работы бота (например, для Украины - 'Europe/Kiev')
+# Важно установить правильный часовой пояс, чтобы слоты корректно отображались
+TIMEZONE = pytz.timezone('Europe/Kiev') # Используем часовой пояс Киева для Одессы
 
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
 
@@ -73,9 +78,11 @@ async def book_appointment(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
 
     keyboard = []
-    today = datetime.date.today()
+    # Получаем текущую дату в заданном часовом поясе
+    today_in_tz = datetime.datetime.now(TIMEZONE).date() 
+    
     for i in range(7):  # Предлагаем запись на 7 дней вперед
-        date = today + datetime.timedelta(days=i)
+        date = today_in_tz + datetime.timedelta(days=i)
         keyboard.append(
             [InlineKeyboardButton(date.strftime("%d.%m.%Y"), callback_data=f"select_date_{date.isoformat()}")]
         )
@@ -89,53 +96,52 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await query.answer()
 
     selected_date_str = query.data.replace("select_date_", "")
-    selected_date = datetime.date.fromisoformat(selected_date_str)
+    selected_date_naive = datetime.date.fromisoformat(selected_date_str) # Дата без TZ
 
     keyboard = []
     start_time = datetime.time(8, 0) # Начало работы в 8:00
     end_time = datetime.time(17, 0)  # Конец работы в 17:00
     interval = datetime.timedelta(minutes=30)
 
-    current_time_slot = datetime.datetime.combine(selected_date, start_time)
-
-    # Получаем текущее время для сравнения
-    now = datetime.datetime.now(datetime.timezone.utc).astimezone() # Получаем текущее время с учетом часового пояса
+    # Получаем текущее время с учетом часового пояса
+    now_aware = datetime.datetime.now(TIMEZONE)
     
-    while current_time_slot.time() <= end_time:
-        slot_datetime = datetime.datetime.combine(selected_date, current_time_slot.time())
-        
-        # Если выбранная дата - сегодня, и слот уже в прошлом
-        # Используем datetime.timedelta(minutes=1) для небольшой "форы"
-        is_past_slot = (selected_date == now.date() and slot_datetime < now - datetime.timedelta(minutes=1))
-        
-        slot_str = current_time_slot.strftime("%H:%M")
+    # Инициализируем первый слот как offset-aware datetime
+    current_slot_datetime = TIMEZONE.localize(datetime.datetime.combine(selected_date_naive, start_time))
+    
+    while current_slot_datetime.time() <= end_time:
+        slot_str = current_slot_datetime.strftime("%H:%M")
         
         # Проверяем, занят ли слот
         is_booked = booked_slots.get(selected_date_str, {}).get(slot_str) is not None
+        
+        # Проверяем, если слот в прошлом
+        # Сравниваем offset-aware datetime объекты
+        is_past_slot = (current_slot_datetime < now_aware - datetime.timedelta(minutes=1)) # Даем небольшую "фору"
         
         button_text = f"{slot_str}"
         if is_booked:
             button_text += " (Занято)"
         elif is_past_slot:
-            button_text += " (Прошло)" # Метка для прошедших слотов
+            button_text += " (Прошло)" 
 
         callback_data = f"select_time_{selected_date_str}_{slot_str}"
         
         # Отключаем кнопку, если слот занят или в прошлом
         is_disabled = is_booked or is_past_slot
 
-        # Добавляем кнопку. Если она отключена, callback_data будет "ignore"
         keyboard.append(
             [InlineKeyboardButton(button_text, callback_data=callback_data if not is_disabled else "ignore")] 
         )
-        current_time_slot += interval
+        # Переводим следующий слот также в offset-aware
+        current_slot_datetime += interval
 
     # Добавляем кнопку "Назад"
     keyboard.append([InlineKeyboardButton("⬅️ Назад к выбору дня", callback_data="book_appointment")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        f"Выберите время для записи на {selected_date.strftime('%d.%m.%Y')}:",
+        f"Выберите время для записи на {selected_date_naive.strftime('%d.%m.%Y')}:",
         reply_markup=reply_markup
     )
 
@@ -144,8 +150,8 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     query = update.callback_query
     await query.answer()
 
-    if query.data == "ignore": # Если нажали на "занято" или "прошло"
-        await query.answer("Это время недоступно.") # Отправляем короткое всплывающее уведомление
+    if query.data == "ignore": 
+        await query.answer("Это время недоступно.") 
         return
 
     parts = query.data.split("_")
@@ -154,11 +160,16 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     user_name = update.effective_user.full_name
 
-    # Перепроверяем, не является ли слот прошедшим или занятым прямо перед бронированием
-    selected_datetime_obj = datetime.datetime.combine(datetime.date.fromisoformat(selected_date_str), datetime.time.fromisoformat(selected_time_str))
-    now = datetime.datetime.now(datetime.timezone.utc).astimezone() # Время с учетом TZ
+    # Создаем offset-aware datetime для выбранного слота
+    selected_date_naive = datetime.date.fromisoformat(selected_date_str)
+    selected_time_naive = datetime.time.fromisoformat(selected_time_str)
+    selected_datetime_aware = TIMEZONE.localize(datetime.datetime.combine(selected_date_naive, selected_time_naive))
 
-    if selected_datetime_obj < now - datetime.timedelta(minutes=1): # Даем небольшую "фору" в 1 минуту
+    # Получаем текущее время с учетом часового пояса
+    now_aware = datetime.datetime.now(TIMEZONE)
+
+    # Проверяем, не является ли слот прошедшим или занятым прямо перед бронированием
+    if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1): 
         await query.edit_message_text("К сожалению, это время уже прошло. Пожалуйста, выберите другое.")
         return
     
@@ -174,7 +185,7 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     confirmation_message = (
         f"✅ Отлично, {user_name}! Вы успешно записаны на шиномонтаж:\n\n"
-        f"📅 **Дата:** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
+        f"📅 **Дата:** {selected_date_naive.strftime('%d.%m.%Y')}\n"
         f"⏰ **Время:** {selected_time_str}\n\n"
         "Ждем вас!"
     )
@@ -184,7 +195,7 @@ async def select_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     booking_info = {
         "user_id": user_id,
         "user_name": user_name,
-        "date": datetime.date.fromisoformat(selected_date_str),
+        "date": selected_date_naive,
         "time": selected_time_str
     }
     await notify_admin_new_booking(context, booking_info)
