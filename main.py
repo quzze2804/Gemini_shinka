@@ -493,7 +493,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_lang is None:
         keyboard = [
             [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
-            [InlineKeyboardButton(translations['uk']['uk']['lang_button_uk'], callback_data="set_lang_uk")],
+            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")], # ИСПРАВЛЕНО ЗДЕСЬ
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1075,4 +1075,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
