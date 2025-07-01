@@ -981,7 +981,10 @@ def main() -> None:
         logger.error("BOT_TOKEN environment variable not set. Exiting.")
         return
 
-    application = Application.builder().token(BOT_TOKEN).build()
+        application = Application.builder().token(BOT_TOKEN).read_timeout(7).write_timeout(7).build()
+    # application.job_queue - должен быть доступен автоматически после build()
+    # Однако, убедимся, что application.job_queue не None перед использованием.
+
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("test_reminder", test_reminder_command)) # <-- Добавлена команда /test_reminder
