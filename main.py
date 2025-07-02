@@ -8,7 +8,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
     ConversationHandler,
-    JobQueue
+    JobQueue # Явно импортируем JobQueue, хотя в PTB 22.x он обычно доступен через application
 )
 import datetime
 import os
@@ -432,8 +432,9 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
         return
 
-    if context.job_queue is None:
-        logger.error("JobQueue is None in context for test_reminder_command. This should not happen if bot started correctly with PTB 22.x.")
+    # В PTB 22.x context.job_queue гарантированно доступен, если Application запущен с JobQueue
+    if not hasattr(context.application, 'job_queue') or context.application.job_queue is None:
+        logger.error("JobQueue is not available in context.application for test_reminder_command.")
         await update.message.reply_text("Извините, произошла внутренняя ошибка при планировании напоминания. Пожалуйста, сообщите администратору.")
         return
 
@@ -455,13 +456,13 @@ async def test_reminder_command(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Удаляем предыдущие тестовые напоминания для этого чата, если они есть,
     # чтобы избежать дублирования, если команду вызывают несколько раз
-    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    current_jobs = context.application.job_queue.get_jobs_by_name(job_name)
     for job in current_jobs:
         job.schedule_removal() # Удаляем старую задачу
         logger.info(f"Удалено предыдущее тестовое напоминание: {job.name}")
         
     # Планируем отправку напоминания через 10 секунд
-    context.job_queue.run_once(
+    context.application.job_queue.run_once(
         send_reminder, # Функция, которую нужно вызвать
         test_time,     # Время, когда нужно вызвать функцию
         data=test_data, # Данные, которые будут переданы в функцию send_reminder через context.job.data
@@ -486,7 +487,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_lang is None:
         keyboard = [
             [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
-            [InlineKeyboardButton(translations['uk']['uk']['lang_button_uk'], callback_data="set_lang_uk")],
+            # ИСПРАВЛЕНИЕ: Исправлен некорректный доступ к переводам
+            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -496,11 +498,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.callback_query.edit_message_text(translations['ru']['choose_language'], reply_markup=reply_markup)
     else:
         # If language is already set, ensure the message is updated or sent
-        if update.message:
-            await show_main_menu(update, context)
-        elif update.callback_query:
-            # If start is called via callback (e.g. after language selection)
-            await show_main_menu(update, context)
+        await show_main_menu(update, context)
 
 
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -527,6 +525,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # ИСПРАВЛЕНИЕ: Добавлена проверка на update.message для корректной отправки при первом /start
     if update.message: 
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
     elif update.callback_query: 
@@ -554,7 +553,7 @@ async def show_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def start_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Начинает процесс записи, показывая дни для записи."""
     query = update.callback_query
-    if query:
+    if query: # Если это колбэк, отвечаем на него
         await query.answer()
         
     keyboard = []
@@ -567,13 +566,14 @@ async def start_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [InlineKeyboardButton(date.strftime("%d.%m.%Y"), callback_data=f"select_date_flow_{date.isoformat()}")]
         )
     
-    keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu_from_booking_flow")]) # Новая callback_data
+    keyboard.append([InlineKeyboardButton(get_text(context, 'btn_main_menu'), callback_data="main_menu_from_booking_flow")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Distinguish between message and callback query updates for sending/editing message
+    
+    # ИСПРАВЛЕНИЕ: Корректная обработка update.message и update.callback_query
     if update.callback_query:
         await update.callback_query.edit_message_text(get_text(context, 'select_day_for_booking'), reply_markup=reply_markup)
-    elif update.message: # For /start command directly starting booking flow
+    elif update.message:
         await update.message.reply_text(get_text(context, 'select_day_for_booking'), reply_markup=reply_markup)
     
     return BOOKING_SELECT_DAY
@@ -608,7 +608,7 @@ async def select_date_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         elif is_past_slot:
             button_text += get_text(context, 'past_slot') 
 
-        # Changed callback_data for disabled slots to avoid triggering select_time_flow logic
+        # ИСПРАВЛЕНИЕ: Изменена callback_data для неактивных слотов, чтобы их обрабатывал отдельный хэндлер
         callback_data = f"select_time_flow_{selected_date_str}_{slot_str}"
         
         is_disabled = is_booked or is_past_slot
@@ -619,9 +619,9 @@ async def select_date_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         current_slot_datetime += interval
 
     if context.user_data.get('reschedule_mode'):
-        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_back_to_my_bookings'), callback_data="my_bookings_from_reschedule_flow")]) # Новая callback_data
+        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_back_to_my_bookings'), callback_data="my_bookings_from_reschedule_flow")])
     else:
-        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_back_to_day_select'), callback_data="back_to_day_select_flow")]) # Новая callback_data
+        keyboard.append([InlineKeyboardButton(get_text(context, 'btn_back_to_day_select'), callback_data="back_to_day_select_flow")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
@@ -788,7 +788,7 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.info(f"Старая запись {old_booking_key} удалена для переноса.")
             
             job_name_to_remove = f"reminder_{old_booking_key}"
-            current_jobs = context.job_queue.get_jobs_by_name(job_name_to_remove)
+            current_jobs = context.application.job_queue.get_jobs_by_name(job_name_to_remove) # ИСПРАВЛЕНИЕ: Доступ к JobQueue через application
             for job in current_jobs:
                 job.schedule_removal()
                 logger.info(f"Удалено старое напоминание для {job_name_to_remove}")
@@ -849,7 +849,7 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     reminder_time = selected_datetime_aware - datetime.timedelta(days=1)
     if reminder_time > now_aware: # Проверяем, что время напоминания еще в будущем
         job_name = f"reminder_{selected_date_str}_{selected_time_str}"
-        context.job_queue.run_once(
+        context.application.job_queue.run_once( # ИСПРАВЛЕНИЕ: Доступ к JobQueue через application
             send_reminder,
             reminder_time,
             data={'chat_id': chat_id, 'user_id': user_id, 'date_str': selected_date_str, 'time_str': selected_time_str, 'language': user_lang},
@@ -964,7 +964,7 @@ async def cancel_specific_booking(update: Update, context: ContextTypes.DEFAULT_
             await notify_admin_cancellation(context, admin_cancellation_info)
 
             job_name_to_remove = f"reminder_{booking_key}"
-            current_jobs = context.job_queue.get_jobs_by_name(job_name_to_remove)
+            current_jobs = context.application.job_queue.get_jobs_by_name(job_name_to_remove) # ИСПРАВЛЕНИЕ: Доступ к JobQueue через application
             for job in current_jobs:
                 job.schedule_removal()
                 logger.info(f"Удалено напоминание для отмененной записи {job_name_to_remove}")
