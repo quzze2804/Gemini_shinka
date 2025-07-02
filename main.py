@@ -689,41 +689,61 @@ async def get_name_booking_flow(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def get_phone_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Получает номер телефона и предлагает подтвердить запись."""
+    logger.info("DEBUG: Entering get_phone_booking_flow.")
     phone_number = None
     if update.message.text:
-        # Если пользователь ввел номер как текст
+        logger.info(f"DEBUG: Phone number received as text: {update.message.text}")
         phone_number = update.message.text
     elif update.message.contact:
-        # Если пользователь поделился контактом
+        logger.info(f"DEBUG: Phone number received as contact: {update.message.contact.phone_number}")
         phone_number = update.message.contact.phone_number
 
     if not phone_number:
-        # Проверка на пустой или некорректный ввод
+        logger.warning("DEBUG: Phone number is empty or invalid. Replying with error.")
         await update.message.reply_text(get_text(context, 'phone_incorrect'))
-        return BOOKING_ASK_PHONE 
+        return BOOKING_ASK_PHONE
 
-    context.user_data['phone_number'] = phone_number 
+    context.user_data['phone_number'] = phone_number
+    logger.info(f"DEBUG: Stored phone_number: {context.user_data['phone_number']}")
 
-    selected_date_str = context.user_data['selected_date']
-    selected_time_str = context.user_data['selected_time']
-    user_name = context.user_data['user_name_for_booking']
-    
-    confirmation_text = (
-        f"{get_text(context, 'check_data')}\n\n"
-        f"📅 **{get_text(context, 'date_label')}** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
-        f"⏰ **{get_text(context, 'time_label')}** {selected_time_str}\n"
-        f"👤 **{get_text(context, 'name_label')}** {user_name}\n"
-        f"📞 **{get_text(context, 'phone_label')}** {phone_number}\n\n"
-        f"{get_text(context, 'all_correct')}"
-    )
-    
+    # Add checks for crucial user_data before accessing them
+    selected_date_str = context.user_data.get('selected_date')
+    selected_time_str = context.user_data.get('selected_time')
+    user_name = context.user_data.get('user_name_for_booking')
+
+    if not all([selected_date_str, selected_time_str, user_name]):
+        logger.error(f"DEBUG: Missing critical user_data for confirmation. selected_date_str: {selected_date_str}, selected_time_str: {selected_time_str}, user_name: {user_name}. Aborting booking process.")
+        await update.message.reply_text(get_text(context, 'error_try_again')) 
+        context.user_data.clear()
+        return ConversationHandler.END
+
+
+    try:
+        confirmation_text = (
+            f"{get_text(context, 'check_data')}\n\n"
+            f"📅 **{get_text(context, 'date_label')}** {datetime.date.fromisoformat(selected_date_str).strftime('%d.%m.%Y')}\n"
+            f"⏰ **{get_text(context, 'time_label')}** {selected_time_str}\n"
+            f"👤 **{get_text(context, 'name_label')}** {user_name}\n"
+            f"📞 **{get_text(context, 'phone_label')}** {phone_number}\n\n"
+            f"{get_text(context, 'all_correct')}"
+        )
+        logger.info("DEBUG: Confirmation text created successfully.")
+    except Exception as e:
+        logger.error(f"DEBUG: Error creating confirmation text: {e}")
+        await update.message.reply_text(get_text(context, 'error_try_again'))
+        context.user_data.clear()
+        return ConversationHandler.END
+
+
     keyboard = [
         [InlineKeyboardButton(get_text(context, 'btn_confirm'), callback_data="confirm_booking_flow")],
         [InlineKeyboardButton(get_text(context, 'btn_cancel_process'), callback_data="cancel_booking_process_flow")] 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    logger.info("DEBUG: Keyboard and reply_markup created.")
 
     await update.message.reply_text(confirmation_text, reply_markup=reply_markup, parse_mode='Markdown')
+    logger.info("DEBUG: Confirmation message sent. Moving to BOOKING_CONFIRM state.")
     return BOOKING_CONFIRM 
 
 async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -741,6 +761,7 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     user_lang = context.user_data.get('language', 'ru') 
 
     if not all([selected_date_str, selected_time_str, user_name, phone_number]):
+        logger.error("Attempted to confirm booking with missing data.")
         await query.edit_message_text(get_text(context, 'error_try_again'))
         context.user_data.clear()
         return ConversationHandler.END
@@ -752,6 +773,7 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Повторная проверка на случай, если слот был занят в последний момент (хотя handle_ignore_time_flow должен был это перехватить)
     if selected_datetime_aware < now_aware - datetime.timedelta(minutes=1) or booked_slots.get(selected_date_str, {}).get(selected_time_str) is not None:
+        logger.warning(f"Booking slot {selected_date_str} {selected_time_str} is no longer available (past or booked).")
         await query.edit_message_text(get_text(context, 'time_booked')) 
         context.user_data.clear()
         return ConversationHandler.END
@@ -798,6 +820,8 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     reply_markup_after_confirm = InlineKeyboardMarkup(keyboard_after_confirm)
 
     await query.edit_message_text(confirmation_message, reply_markup=reply_markup_after_confirm, parse_mode='Markdown')
+    logger.info(f"Booking confirmed for user {user_id} on {selected_date_str} at {selected_time_str}")
+
 
     admin_booking_info = {
         "user_id": user_id,
@@ -1098,7 +1122,7 @@ def main() -> None:
                 CallbackQueryHandler(go_to_my_bookings_and_end_conv, pattern="^my_bookings_from_reschedule_flow") # Return to my bookings during reschedule
             ],
             BOOKING_ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name_booking_flow)],
-            BOOKING_ASK_PHONE: [MessageHandler((filters.TEXT | filters.CONTACT) & ~filters.COMMAND, get_phone_booking_flow)], # ИЗМЕНЕНО: Добавлен filters.CONTACT
+            BOOKING_ASK_PHONE: [MessageHandler((filters.TEXT | filters.CONTACT) & ~filters.COMMAND, get_phone_booking_flow)],
             BOOKING_CONFIRM: [
                 CallbackQueryHandler(confirm_booking_flow, pattern="^confirm_booking_flow$"),
                 CallbackQueryHandler(cancel_booking_process_flow, pattern="^cancel_booking_process_flow")
