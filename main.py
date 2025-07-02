@@ -689,8 +689,16 @@ async def get_name_booking_flow(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def get_phone_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Получает номер телефона и предлагает подтвердить запись."""
-    phone_number = update.message.text
+    phone_number = None
+    if update.message.text:
+        # Если пользователь ввел номер как текст
+        phone_number = update.message.text
+    elif update.message.contact:
+        # Если пользователь поделился контактом
+        phone_number = update.message.contact.phone_number
+
     if not phone_number:
+        # Проверка на пустой или некорректный ввод
         await update.message.reply_text(get_text(context, 'phone_incorrect'))
         return BOOKING_ASK_PHONE 
 
@@ -1090,7 +1098,7 @@ def main() -> None:
                 CallbackQueryHandler(go_to_my_bookings_and_end_conv, pattern="^my_bookings_from_reschedule_flow") # Return to my bookings during reschedule
             ],
             BOOKING_ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name_booking_flow)],
-            BOOKING_ASK_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone_booking_flow)],
+            BOOKING_ASK_PHONE: [MessageHandler((filters.TEXT | filters.CONTACT) & ~filters.COMMAND, get_phone_booking_flow)], # ИЗМЕНЕНО: Добавлен filters.CONTACT
             BOOKING_CONFIRM: [
                 CallbackQueryHandler(confirm_booking_flow, pattern="^confirm_booking_flow$"),
                 CallbackQueryHandler(cancel_booking_process_flow, pattern="^cancel_booking_process_flow")
@@ -1124,4 +1132,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
