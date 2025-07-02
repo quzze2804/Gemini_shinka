@@ -15,23 +15,26 @@ import os
 import pytz
 
 # --- КОНФИГУРАЦИЯ БОТА ---
+# Убедитесь, что переменная окружения TELEGRAM_BOT_TOKEN установлена
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") 
 
 try:
+    # Убедитесь, что TELEGRAM_ADMIN_CHAT_ID установлен в переменных окружения
+    # Замените "7285220061" на реальный ID вашего чата администратора для уведомлений
     ADMIN_CHAT_ID = int(os.environ.get("TELEGRAM_ADMIN_CHAT_ID", "7285220061")) 
 except (ValueError, TypeError):
     ADMIN_CHAT_ID = None
     logging.warning("TELEGRAM_ADMIN_CHAT_ID не установлен или некорректен в переменных окружения. Уведомления админу могут не работать.")
 
+# Настройка часового пояса (Киев)
 TIMEZONE = pytz.timezone('Europe/Kiev') 
 
-# Новые константы для состояний ConversationHandler (переопределяем, чтобы избежать конфликтов и сделать их более явными)
+# Новые константы для состояний ConversationHandler (используем range для удобства)
 BOOKING_SELECT_DAY, BOOKING_SELECT_TIME, BOOKING_ASK_NAME, BOOKING_ASK_PHONE, BOOKING_CONFIRM = range(5)
 
-# --- НОВАЯ КОНСТАНТА ДЛЯ ССЫЛКИ НА КАНАЛ ОТЗЫВОВ ---
-REVIEWS_CHANNEL_LINK = "https://t.me/+Qca52HCOurI0MmRi"
-# --- НОВАЯ КОНСТАНТА ДЛЯ НИКНЕЙМА АДМИНА ДЛЯ ОТЗЫВОВ ---
-ADMIN_USERNAME_FOR_REVIEWS = "shimontazh_arciz" # Ваш никнейм Telegram без @
+# Константы для ссылок на канал отзывов и никнейма админа
+REVIEWS_CHANNEL_LINK = "https://t.me/+Qca52HCOurI0MmRi" # Замените на вашу реальную ссылку
+ADMIN_USERNAME_FOR_REVIEWS = "shimontazh_arciz" # Замените на реальный никнейм Telegram администратора без @
 
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
 
@@ -69,7 +72,6 @@ translations = {
         'btn_info_and_faq': "ℹ️ Информация и FAQ",
         'btn_our_location': "📍 Наше местоположение",
         'btn_main_menu': "⬅️ Главное меню",
-        # --- НОВЫЕ ПЕРЕВОДЫ ДЛЯ ОТЗЫВОВ ---
         'btn_reviews': "⭐ Отзывы",
         'reviews_message': (
             "Спасибо за ваш интерес к нашему шиномонтажу!\n\n"
@@ -79,7 +81,6 @@ translations = {
         'btn_go_to_reviews_channel': "Наши отзывы и предложения 💬",
         'btn_leave_a_review': "Оставить отзыв ⭐",
         'btn_back': "Назад ↩️",
-        # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Выберите день для записи:",
         'select_time_for_booking': "Выберите время для записи на {date}:",
         'time_unavailable': "Это время недоступно. Пожалуйста, выберите другое.",
@@ -202,17 +203,15 @@ translations = {
         'btn_info_and_faq': "ℹ️ Інформація та FAQ",
         'btn_our_location': "📍 Наше місцезнаходження",
         'btn_main_menu': "⬅️ Головне меню",
-        # --- НОВЫЕ ПЕРЕВОДЫ ДЛЯ ОТЗЫВОВ ---
         'btn_reviews': "⭐ Відгуки",
         'reviews_message': (
             "Дякуємо за ваш інтерес до нашого шиномонтажу!\n\n"
             "Ми цінуємо думку кожного клієнта. Ваші відгуки допомагають нам ставати кращими та підтримувати високий рівень сервісу.\n\n"
-            "Щоб почитати відгуки інших клієнтів або залишити свій, переходьте за кнопками нижче:"
+            "Щоб почитати відгуки інших клієнтів або залишити свій, переходите за кнопками нижче:"
         ),
         'btn_go_to_reviews_channel': "Наші відгуки та пропозиції 💬",
         'btn_leave_a_review': "Залишити відгук ⭐",
         'btn_back': "Назад ↩️",
-        # --- КОНЕЦ НОВЫХ ПЕРЕВОДОВ ---
         'select_day_for_booking': "Оберіть день для запису:",
         'select_time_for_booking': "Оберіть час для запису на {date}:",
         'time_unavailable': "Цей час недоступний. Будь ласка, оберіть інший.",
@@ -487,7 +486,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_lang is None:
         keyboard = [
             [InlineKeyboardButton(translations['ru']['lang_button_ru'], callback_data="set_lang_ru")],
-            [InlineKeyboardButton(translations['uk']['lang_button_uk'], callback_data="set_lang_uk")],
+            [InlineKeyboardButton(translations['uk']['uk']['lang_button_uk'], callback_data="set_lang_uk")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -761,7 +760,7 @@ async def confirm_booking_flow(update: Update, context: ContextTypes.DEFAULT_TYP
     user_lang = context.user_data.get('language', 'ru') 
 
     if not all([selected_date_str, selected_time_str, user_name, phone_number]):
-        logger.error("Attempted to confirm booking with missing data.")
+        logger.error("Attempted to confirm booking with missing data in confirm_booking_flow.")
         await query.edit_message_text(get_text(context, 'error_try_again'))
         context.user_data.clear()
         return ConversationHandler.END
